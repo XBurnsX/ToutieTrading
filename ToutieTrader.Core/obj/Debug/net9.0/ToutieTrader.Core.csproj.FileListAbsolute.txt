@@ -1,0 +1,12 @@
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\bin\Debug\net9.0\ToutieTrader.Core.deps.json
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\bin\Debug\net9.0\ToutieTrader.Core.dll
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\bin\Debug\net9.0\ToutieTrader.Core.pdb
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.csproj.AssemblyReference.cache
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.AssemblyInfoInputs.cache
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.AssemblyInfo.cs
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.csproj.CoreCompileInputs.cache
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.dll
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\refint\ToutieTrader.Core.dll
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ToutieTrader.Core.pdb
+C:\Users\XBurnsX\ToutieTrading\ToutieTrader.Core\obj\Debug\net9.0\ref\ToutieTrader.Core.dll

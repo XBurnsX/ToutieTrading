@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tools/create_trade_databases.py)",
+      "Bash(dotnet --version)",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet build:*)",
+      "Bash(rm -f ToutieTrader.Data/Class1.cs)",
+      "Bash(mkdir -p ToutieTrader.Core/Models ToutieTrader.Core/Utils)"
+    ]
+  }
+}

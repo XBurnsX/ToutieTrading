@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToutieTrader — Améliorations</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #08080a;
+  --s1: #0f0f12;
+  --s2: #141418;
+  --border: #1c1c22;
+  --text: #d8d8e8;
+  --muted: #3a3a50;
+  --dim: #22222c;
+  --y: #ffd600;
+  --g: #00e87a;
+  --r: #ff3b3b;
+  --b: #3b9eff;
+  --o: #ff8c00;
+  --p: #b06aff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; font-size:13px; min-height:100vh; }
+
+/* HEADER */
+.header {
+  padding: 40px 48px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.logo { font-family:'Bebas Neue',sans-serif; font-size:44px; letter-spacing:4px; line-height:1; }
+.logo span { color:var(--y); }
+.header-sub { font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:3px; margin-top:4px; }
+.legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.leg { display:flex; align-items:center; gap:6px; font-family:'DM Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:1px; }
+.leg-dot { width:8px; height:8px; border-radius:50%; }
+
+/* LAYOUT */
+.content { padding: 40px 48px; display:grid; gap:12px; }
+
+/* CARD */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.card::before {
+  content:'';
+  position:absolute;
+  left:0; top:0; bottom:0;
+  width:3px;
+}
+.card.crit::before { background:var(--r); }
+.card.high::before { background:var(--o); }
+.card.med::before  { background:var(--y); }
+.card.later::before { background:var(--muted); }
+
+.card-header {
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:16px 20px 14px 20px;
+  cursor:pointer;
+  user-select:none;
+}
+.card-header:hover { background:var(--s2); }
+
+.card-num {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:28px;
+  color:var(--dim);
+  line-height:1;
+  min-width:32px;
+}
+.card-title {
+  font-family:'Bebas Neue',sans-serif;
+  font-size:18px;
+  letter-spacing:1.5px;
+  color:#fff;
+  flex:1;
+}
+.card-badge {
+  font-family:'DM Mono',monospace;
+  font-size:9px;
+  letter-spacing:2px;
+  padding:3px 10px;
+  border-radius:2px;
+  white-space:nowrap;
+}
+.badge-crit  { background:rgba(255,59,59,0.12);   color:var(--r); border:1px solid rgba(255,59,59,0.25); }
+.badge-high  { background:rgba(255,140,0,0.12);   color:var(--o); border:1px solid rgba(255,140,0,0.25); }
+.badge-med   { background:rgba(255,214,0,0.12);   color:var(--y); border:1px solid rgba(255,214,0,0.2); }
+.badge-later { background:rgba(58,58,80,0.3);     color:var(--muted); border:1px solid var(--border); }
+.badge-pro   { background:rgba(176,106,255,0.12); color:var(--p); border:1px solid rgba(176,106,255,0.25); }
+
+.card-arrow {
+  font-size:11px;
+  color:var(--muted);
+  transition:transform 0.2s;
+}
+.card.open .card-arrow { transform:rotate(90deg); }
+
+.card-body {
+  display:none;
+  padding:0 20px 18px 20px;
+  border-top:1px solid var(--border);
+}
+.card.open .card-body { display:block; }
+
+.card-desc {
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.8;
+  margin-bottom:14px;
+  padding-top:14px;
+}
+
+.items { display:grid; gap:6px; }
+.item {
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:2px;
+  padding:10px 14px;
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  font-size:12px;
+  line-height:1.7;
+}
+.item-icon { font-size:14px; flex-shrink:0; margin-top:1px; }
+.item-text { color:var(--text); }
+.item-text strong { color:#fff; font-weight:500; }
+.item-text .dim { color:var(--muted); font-size:11px; font-family:'DM Mono',monospace; }
+
+.tag {
+  display:inline-block;
+  padding:1px 7px;
+  border-radius:2px;
+  font-family:'DM Mono',monospace;
+  font-size:10px;
+  margin:1px 2px;
+}
+.tag-g { background:rgba(0,232,122,0.1); color:var(--g); border:1px solid rgba(0,232,122,0.2); }
+.tag-r { background:rgba(255,59,59,0.1); color:var(--r); border:1px solid rgba(255,59,59,0.2); }
+.tag-y { background:rgba(255,214,0,0.1); color:var(--y); border:1px solid rgba(255,214,0,0.2); }
+.tag-b { background:rgba(59,158,255,0.1); color:var(--b); border:1px solid rgba(59,158,255,0.2); }
+.tag-p { background:rgba(176,106,255,0.1); color:var(--p); border:1px solid rgba(176,106,255,0.2); }
+.tag-m { background:rgba(58,58,80,0.3); color:var(--muted); border:1px solid var(--border); }
+
+.formula {
+  background:var(--dim);
+  border:1px solid var(--border);
+  border-radius:2px;
+  padding:12px 16px;
+  font-family:'DM Mono',monospace;
+  font-size:11px;
+  color:var(--y);
+  line-height:1.8;
+  margin-top:10px;
+}
+
+.phase-note {
+  font-family:'DM Mono',monospace;
+  font-size:10px;
+  color:var(--muted);
+  margin-top:12px;
+  padding-top:10px;
+  border-top:1px solid var(--border);
+  letter-spacing:1px;
+}
+
+/* PRIORITY SUMMARY */
+.summary {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:8px;
+  margin-bottom:4px;
+}
+.sum-block {
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-radius:3px;
+  padding:14px 16px;
+  text-align:center;
+}
+.sum-label { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--muted); margin-bottom:6px; }
+.sum-items { font-size:11px; color:var(--text); line-height:1.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="logo">Toutie<span>Trader</span></div>
+    <div class="header-sub">AMÉLIORATIONS — ROADMAP</div>
+  </div>
+  <div>
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:var(--r)"></div>CRITIQUE</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--o)"></div>TRÈS IMPORTANT</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--y)"></div>IMPORTANT</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--muted)"></div>PLUS TARD</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--p)"></div>NIVEAU PRO</div>
+    </div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- SUMMARY -->
+  <div class="summary">
+    <div class="sum-block">
+      <div class="sum-label">CRITIQUE</div>
+      <div class="sum-items">MarketConditionFilter<br>Stop Trading Intelligent<br>Filtre News<br>Normalisation ATR</div>
+    </div>
+    <div class="sum-block">
+      <div class="sum-label">TRÈS IMPORTANT</div>
+      <div class="sum-items">Risk Adaptatif<br>Score Multi-Critères<br>Logging Automatique<br>Cooldown Trades</div>
+    </div>
+    <div class="sum-block">
+      <div class="sum-label">IMPORTANT</div>
+      <div class="sum-items">Validation Multi-Période<br>Mode Apprentissage</div>
+    </div>
+    <div class="sum-block">
+      <div class="sum-label">NIVEAU PRO</div>
+      <div class="sum-items">Détection Régime Marché<br>Multi-Strategy Auto<br>FTMO Simulator</div>
+    </div>
+  </div>
+
+  <!-- 1. MARKET CONDITION FILTER -->
+  <div class="card crit" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">01</div>
+      <div class="card-title">MARKET CONDITION FILTER</div>
+      <span class="card-badge badge-crit">CRITIQUE</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Ton edge vient pas juste de "quand entrer" — il vient surtout de <strong>quand NE PAS trader</strong>. Module global qui filtre avant même que la Strategy évalue.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📉</div><div class="item-text"><strong>Volatilité trop basse</strong> → skip <span class="dim">// ATR en dessous du seuil configurable</span></div></div>
+        <div class="item"><div class="item-icon">📈</div><div class="item-text"><strong>Volatilité trop haute</strong> → skip <span class="dim">// ATR au-dessus du seuil configurable</span></div></div>
+        <div class="item"><div class="item-icon">💸</div><div class="item-text"><strong>Spread trop élevé</strong> → skip <span class="dim">// spread > X pips configurable par paire</span></div></div>
+        <div class="item"><div class="item-icon">🌙</div><div class="item-text"><strong>Session morte</strong> → skip <span class="dim">// ex: session asiatique pour paires EUR/USD</span></div></div>
+        <div class="item"><div class="item-icon">📰</div><div class="item-text"><strong>News importantes</strong> → skip <span class="dim">// voir module News #11</span></div></div>
+      </div>
+      <div class="phase-note">→ MODULE GLOBAL — s'applique AVANT toute Strategy. Configurable par paire dans Settings.</div>
+    </div>
+  </div>
+
+  <!-- 2. RISK ADAPTATIF -->
+  <div class="card high" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">02</div>
+      <div class="card-title">RISK ADAPTATIF</div>
+      <span class="card-badge badge-high">TRÈS IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Le RiskPercent fixe c'est V1. En V2, le risk s'adapte automatiquement selon la performance récente.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📉</div><div class="item-text"><strong>X pertes consécutives</strong> → réduire risk <span class="dim">// ex: 3 pertes → risk / 2</span></div></div>
+        <div class="item"><div class="item-icon">📈</div><div class="item-text"><strong>Equity en hausse</strong> → augmenter légèrement <span class="dim">// +X% equity → risk * 1.25, plafonné</span></div></div>
+        <div class="item"><div class="item-icon">🔻</div><div class="item-text"><strong>Drawdown actif</strong> → couper risk <span class="dim">// DD > Y% → risk minimum jusqu'à récupération</span></div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text"><strong>Tous les seuils configurables</strong> dans Settings de la Strategy</div></div>
+      </div>
+      <div class="phase-note">→ Extension de RiskEngine — V2</div>
+    </div>
+  </div>
+
+  <!-- 3. VALIDATION MULTI-PÉRIODE -->
+  <div class="card med" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">03</div>
+      <div class="card-title">VALIDATION MULTI-PÉRIODE</div>
+      <span class="card-badge badge-med">IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">L'Optimizer est puissant mais dangereux sans garde-fous. Une strategy "parfaite en backtest" peut être nulle en live si c'est de l'overfitting.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📊</div><div class="item-text"><strong>In-sample</strong> → période d'entraînement <span class="dim">// l'optimizer cherche les meilleurs settings</span></div></div>
+        <div class="item"><div class="item-icon">✅</div><div class="item-text"><strong>Out-of-sample</strong> → période de validation <span class="dim">// confirme que ça tient sur données inconnues</span></div></div>
+        <div class="item"><div class="item-icon">🔄</div><div class="item-text"><strong>Walk-forward</strong> → validation glissante <span class="dim">// V2 — la vraie validation pro</span></div></div>
+      </div>
+      <div class="phase-note">→ Déjà prévu dans l'Optimizer — à implémenter correctement</div>
+    </div>
+  </div>
+
+  <!-- 4. SCORE MULTI-CRITÈRES -->
+  <div class="card high" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">04</div>
+      <div class="card-title">SCORE GLOBAL DE STRATEGY</div>
+      <span class="card-badge badge-high">TRÈS IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Ne jamais classer par profit seul — ça sort des strategies chanceuses. Le score pondéré évite les combinaisons "overfittées".</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">💰</div><div class="item-text"><strong>Net Profit</strong> <span class="tag tag-y">×0.4</span></div></div>
+        <div class="item"><div class="item-icon">📉</div><div class="item-text"><strong>1 / Max Drawdown</strong> <span class="tag tag-y">×0.3</span> <span class="dim">// DD faible = meilleur score</span></div></div>
+        <div class="item"><div class="item-icon">⚖️</div><div class="item-text"><strong>Profit Factor</strong> <span class="tag tag-y">×0.2</span></div></div>
+        <div class="item"><div class="item-icon">🔢</div><div class="item-text"><strong>Nombre de trades</strong> <span class="tag tag-y">×0.1</span> <span class="dim">// pénalité si &lt; 30 trades</span></div></div>
+      </div>
+      <div class="formula">
+Score = Profit × 0.4<br>
+      + (1/DD) × 0.3<br>
+      + PF × 0.2<br>
+      + Trades × 0.1<br>
+<br>
+// Pondérations configurables dans l'UI Optimizer
+      </div>
+      <div class="phase-note">→ OptimizerEngine — pondérations ajustables dans l'UI</div>
+    </div>
+  </div>
+
+  <!-- 5. DÉTECTION RÉGIME MARCHÉ -->
+  <div class="card later" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">05</div>
+      <div class="card-title">DÉTECTION DE RÉGIME MARCHÉ</div>
+      <span class="card-badge badge-pro">NIVEAU PRO</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Un niveau au-dessus de la Strategy. Le MarketRegime détecte l'état du marché et décide quelles strategies peuvent tourner.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📈</div><div class="item-text"><strong>Trending</strong> <span class="tag tag-g">actif</span> → strategies trend autorisées</div></div>
+        <div class="item"><div class="item-icon">↔️</div><div class="item-text"><strong>Range</strong> <span class="tag tag-b">actif</span> → strategies range autorisées</div></div>
+        <div class="item"><div class="item-icon">⚡</div><div class="item-text"><strong>Volatile</strong> <span class="tag tag-y">caution</span> → risk réduit ou pause</div></div>
+        <div class="item"><div class="item-icon">💀</div><div class="item-text"><strong>Dead</strong> <span class="tag tag-r">skip</span> → aucun trade</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Chaque Strategy déclare dans quels régimes elle peut tourner</div></div>
+      </div>
+      <div class="phase-note">→ Extension de TrendEngine — V3</div>
+    </div>
+  </div>
+
+  <!-- 6. MULTI-STRATEGY AUTO -->
+  <div class="card later" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">06</div>
+      <div class="card-title">MULTI-STRATEGY AUTOMATIQUE</div>
+      <span class="card-badge badge-pro">NIVEAU PRO</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">V1 = une seule Strategy active (bon choix). Plus tard : le bot choisit automatiquement la bonne strategy selon le régime.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📈</div><div class="item-text"><strong>Strategy A</strong> = trend → active si marché trending</div></div>
+        <div class="item"><div class="item-icon">↔️</div><div class="item-text"><strong>Strategy B</strong> = range → active si marché en range</div></div>
+        <div class="item"><div class="item-icon">🤖</div><div class="item-text">Bot choisit automatiquement selon MarketRegime</div></div>
+        <div class="item"><div class="item-icon">💼</div><div class="item-text">Un vrai portefeuille algo</div></div>
+      </div>
+      <div class="phase-note">→ Dépend du module MarketRegime #05 — V3+</div>
+    </div>
+  </div>
+
+  <!-- 7. STOP TRADING INTELLIGENT -->
+  <div class="card crit" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">07</div>
+      <div class="card-title">STOP TRADING INTELLIGENT</div>
+      <span class="card-badge badge-crit">CRITIQUE</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Pas juste un DD fixe. Le bot doit savoir se retirer intelligemment avant de se faire détruire.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🔴</div><div class="item-text"><strong>X pertes consécutives</strong> → stop journée <span class="dim">// ex: 3 pertes → plus de trades aujourd'hui</span></div></div>
+        <div class="item"><div class="item-icon">🔴</div><div class="item-text"><strong>Perte &gt; X%</strong> → pause <span class="dim">// ex: -3% aujourd'hui → stop</span></div></div>
+        <div class="item"><div class="item-icon">🟡</div><div class="item-text"><strong>Mauvais régime marché</strong> → pause <span class="dim">// Dead ou Volatile → skip</span></div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Tous les seuils configurables dans Settings</div></div>
+      </div>
+      <div class="phase-note">→ Extension de TradeManager + RiskEngine</div>
+    </div>
+  </div>
+
+  <!-- 8. LOGGING + ANALYSE AUTO -->
+  <div class="card high" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">08</div>
+      <div class="card-title">LOGGING + ANALYSE AUTOMATIQUE</div>
+      <span class="card-badge badge-high">TRÈS IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">T'as déjà une bonne DB trades. Ajouter une couche d'analyse automatique après X trades pour identifier les patterns de performance.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🏆</div><div class="item-text"><strong>Quelles conditions performent</strong> → classer les labels de conditions par win rate</div></div>
+        <div class="item"><div class="item-icon">❌</div><div class="item-text"><strong>Quelles paires sont nulles</strong> → identifier les symboles à exclure</div></div>
+        <div class="item"><div class="item-icon">🕐</div><div class="item-text"><strong>Quelles heures sont mauvaises</strong> → heatmap performance par heure (heure Québec)</div></div>
+        <div class="item"><div class="item-icon">📊</div><div class="item-text">Rapport automatique affiché dans l'UI après X trades</div></div>
+      </div>
+      <div class="phase-note">→ Module AnalysisEngine — utilise DuckDB #2 existant</div>
+    </div>
+  </div>
+
+  <!-- 9. MODE APPRENTISSAGE -->
+  <div class="card med" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">09</div>
+      <div class="card-title">MODE APPRENTISSAGE</div>
+      <span class="card-badge badge-med">IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Après chaque trade, le bot enregistre les conditions + résultat. Avec le temps, tu peux voir quelles conditions marchent vraiment et ajuster l'Optimizer intelligemment.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📝</div><div class="item-text"><strong>Enregistre</strong> : conditions remplies + résultat (déjà dans conditions_met DB)</div></div>
+        <div class="item"><div class="item-icon">📊</div><div class="item-text"><strong>Visualise</strong> : win rate par condition individuelle</div></div>
+        <div class="item"><div class="item-icon">🎯</div><div class="item-text"><strong>Ajuste</strong> : suggère de retirer les conditions avec win rate &lt; 50%</div></div>
+        <div class="item"><div class="item-icon">🤖</div><div class="item-text">Machine d'amélioration continue — le bot t'aide à t'améliorer</div></div>
+      </div>
+      <div class="phase-note">→ Extension de AnalysisEngine — utilise conditions_met déjà loggé</div>
+    </div>
+  </div>
+
+  <!-- 10. FILTRE NEWS -->
+  <div class="card crit" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">10</div>
+      <div class="card-title">FILTRE NEWS</div>
+      <span class="card-badge badge-crit">CRITIQUE</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Très sous-estimé. CPI, FOMC, NFP peuvent détruire un trade en secondes. Le bot doit savoir quand se taire.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🔴</div><div class="item-text"><strong>CPI, FOMC, NFP</strong> <span class="tag tag-r">STOP</span> → pas de nouveaux trades X minutes avant/après</div></div>
+        <div class="item"><div class="item-icon">🟡</div><div class="item-text"><strong>News mineures</strong> <span class="tag tag-y">RÉDUIRE</span> → risk réduit optionnel</div></div>
+        <div class="item"><div class="item-icon">📡</div><div class="item-text"><strong>Source</strong> : API calendrier économique (ex: ForexFactory, Investing.com)</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Buffer avant/après configurable par type de news</div></div>
+        <div class="item"><div class="item-icon">🌍</div><div class="item-text">Filtrer par paire concernée — NFP affecte USD, pas forcément toutes les paires</div></div>
+      </div>
+      <div class="phase-note">→ Extension de MarketConditionFilter #01</div>
+    </div>
+  </div>
+
+  <!-- 11. NORMALISATION PAR PAIRE (ATR) -->
+  <div class="card crit" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">11</div>
+      <div class="card-title">NORMALISATION PAR PAIRE (ATR)</div>
+      <span class="card-badge badge-crit">CRITIQUE</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Chaque paire est différente. EURUSD ≠ GBPJPY ≠ NASDAQ. Des pips fixes cassent ta strategy selon le marché. Tout doit être basé sur l'ATR de la paire.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📏</div><div class="item-text"><strong>SL basé sur ATR</strong> → ex: SL = ATR × 1.5 au lieu de X pips fixes</div></div>
+        <div class="item"><div class="item-icon">🎯</div><div class="item-text"><strong>TP basé sur ATR</strong> → ex: TP = ATR × 3.0 (ratio 2:1 conservé mais adapté)</div></div>
+        <div class="item"><div class="item-icon">🔍</div><div class="item-text"><strong>Filtres basés sur ATR</strong> → ex: spread trop élevé = spread > ATR × 0.1</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Multiplicateurs ATR configurables dans Settings par Strategy</div></div>
+        <div class="item"><div class="item-icon">✅</div><div class="item-text">Une même Strategy tourne correctement sur EURUSD, GBPJPY et indices sans ajustement manuel</div></div>
+      </div>
+      <div class="phase-note">→ Extension de RiskEngine + StopLossRule — ATR déjà calculable depuis IndicatorEngine</div>
+    </div>
+  </div>
+
+  <!-- 12. COOLDOWN ENTRE TRADES -->
+  <div class="card high" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">12</div>
+      <div class="card-title">COOLDOWN ENTRE TRADES</div>
+      <span class="card-badge badge-high">TRÈS IMPORTANT</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Évite l'overtrading et le revenge trading version bot. Après un trade, le bot attend avant de chercher une nouvelle entrée.</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">⏱️</div><div class="item-text"><strong>Cooldown par bougies</strong> → après un trade, attendre X bougies avant de réévaluer <span class="dim">// configurable dans Settings</span></div></div>
+        <div class="item"><div class="item-icon">🏗️</div><div class="item-text"><strong>Cooldown par structure</strong> → attendre une nouvelle structure de marché (nouveau swing point) <span class="dim">// plus intelligent</span></div></div>
+        <div class="item"><div class="item-icon">🔴</div><div class="item-text"><strong>Cooldown renforcé après perte</strong> → X bougies supplémentaires après un trade perdant</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Mode cooldown configurable dans Settings : bougies fixes ou structure</div></div>
+      </div>
+      <div class="phase-note">→ Extension de TradeManager — configurable par Strategy via Settings</div>
+    </div>
+  </div>
+
+  <!-- 13. FTMO SIMULATOR -->
+  <div class="card high" onclick="toggle(this)">
+    <div class="card-header">
+      <div class="card-num">13</div>
+      <div class="card-title">FTMO SIMULATOR</div>
+      <span class="card-badge badge-high">MODULE SÉPARÉ</span>
+      <span class="card-arrow">▶</span>
+    </div>
+    <div class="card-body">
+      <div class="card-desc">Simuler exactement les règles FTMO en replay et live-démo. Savoir si la strategy aurait passé un challenge sans violer les objectifs — avant de risquer de l'argent réel.</div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">PROFIL FTMO 2-STEP STANDARD</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🎯</div><div class="item-text"><strong>Phase 1 (Challenge)</strong> : +10% profit, max 5% daily loss, max 10% total loss, min 4 jours trading</div></div>
+        <div class="item"><div class="item-icon">✅</div><div class="item-text"><strong>Phase 2 (Verification)</strong> : +5% profit, mêmes règles de loss, min 4 jours trading</div></div>
+        <div class="item"><div class="item-icon">🌍</div><div class="item-text"><strong>Timezone FTMO</strong> : Europe/Prague (CE(S)T) — reset journalier à minuit Prague</div></div>
+        <div class="item"><div class="item-icon">💸</div><div class="item-text">Inclut : floating P/L + commissions + swaps dans tous les calculs</div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">MOTEURS FTMO</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📉</div><div class="item-text"><strong>FtmoDailyLossTracker</strong> : reset à minuit Prague. Limite = balance_at_midnight - 5% capital initial. Violation si equity descend sous cette limite (closed P/L + floating + commissions + swaps).</div></div>
+        <div class="item"><div class="item-icon">🔻</div><div class="item-text"><strong>FtmoMaxLossTracker</strong> : limite globale = initial_capital - 10%. Violation à n'importe quel moment, positions ouvertes incluses.</div></div>
+        <div class="item"><div class="item-icon">📅</div><div class="item-text"><strong>FtmoTradingDaysCounter</strong> : min 4 jours. Un jour = au moins une position initiée. Si trade multi-jours → seul le jour d'ouverture compte. Jours pas forcément consécutifs.</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text"><strong>FtmoPhaseEngine</strong> : CurrentPhase = Challenge | Verification | Passed | Failed. Validation seulement si toutes les positions sont fermées.</div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">RULE BREACH SYSTEM</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🚨</div><div class="item-text"><strong>FtmoBreachType</strong> : None | DailyLoss | MaxLoss — quand cassé : challenge = Failed, stop nouveaux trades, bannière rouge UI, log complet</div></div>
+        <div class="item"><div class="item-icon">📝</div><div class="item-text"><strong>Log breach</strong> : FtmoBreachTimestamp, FtmoBreachEquity, FtmoBreachReason</div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">UI — PANNEAU FTMO (REPLAY + LIVE)</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">📊</div><div class="item-text">Phase actuelle | Profit actuel | Target restant | Daily Loss restant | Max Loss restant | Trading Days validés</div></div>
+        <div class="item"><div class="item-icon">⚠️</div><div class="item-text"><strong>Warning avant trade</strong> : si le prochain trade pourrait casser FTMO → alerte visible</div></div>
+        <div class="item"><div class="item-icon">🔴</div><div class="item-text"><strong>Status</strong> : Running | Passed | Failed — bannière rouge si Failed</div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">DB — CHAMPS LOGGÉS PAR TRADE</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">💾</div><div class="item-text"><span class="tag tag-m">ftmo_phase</span> <span class="tag tag-m">ftmo_daily_loss_remaining</span> <span class="tag tag-m">ftmo_max_loss_remaining</span> <span class="tag tag-m">ftmo_trading_days</span> <span class="tag tag-m">ftmo_status_after_trade</span> <span class="tag tag-m">ftmo_breach_type</span></div></div>
+      </div>
+
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:2px;margin:14px 0 8px;">MODE SÉCURITÉ FTMO</div>
+      <div class="items">
+        <div class="item"><div class="item-icon">🛡️</div><div class="item-text"><strong>FtmoSafeMode toggle</strong> : stop journée AVANT la vraie limite FTMO (ex: stop à -3% au lieu de -5%)</div></div>
+        <div class="item"><div class="item-icon">📉</div><div class="item-text">Réduire risk après pertes consécutives</div></div>
+        <div class="item"><div class="item-icon">🚫</div><div class="item-text">Refuser trades si marge FTMO restante trop faible</div></div>
+        <div class="item"><div class="item-icon">⚙️</div><div class="item-text">Seuils SafeMode configurables dans Settings</div></div>
+      </div>
+
+      <div class="phase-note">→ Module séparé utilisant le même moteur replay/live. Même timezone FTMO Prague gérée indépendamment de l'heure Québec du bot.</div>
+    </div>
+  </div>
+
+</div>
+function toggle(card) {
+  card.classList.toggle('open');
+}
+</script>
+</body>
+</html>

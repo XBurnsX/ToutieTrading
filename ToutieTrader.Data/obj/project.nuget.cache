@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "dgSpecHash": "xapzL0+bbtQ=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\ToutieTrader.Data.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\XBurnsX\\.nuget\\packages\\duckdb.net.bindings.full\\1.5.0\\duckdb.net.bindings.full.1.5.0.nupkg.sha512",
+    "C:\\Users\\XBurnsX\\.nuget\\packages\\duckdb.net.data.full\\1.5.0\\duckdb.net.data.full.1.5.0.nupkg.sha512",
+    "C:\\Users\\XBurnsX\\.nuget\\packages\\microsoft.codeanalysis.analyzers\\5.3.0-2.25625.1\\microsoft.codeanalysis.analyzers.5.3.0-2.25625.1.nupkg.sha512",
+    "C:\\Users\\XBurnsX\\.nuget\\packages\\microsoft.codeanalysis.common\\5.3.0\\microsoft.codeanalysis.common.5.3.0.nupkg.sha512",
+    "C:\\Users\\XBurnsX\\.nuget\\packages\\microsoft.codeanalysis.csharp\\5.3.0\\microsoft.codeanalysis.csharp.5.3.0.nupkg.sha512"
+  ],
+  "logs": []
+}

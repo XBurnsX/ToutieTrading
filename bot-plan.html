@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToutieTrader — Plan du Bot</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0c; --surface: #111114; --surface2: #16161a;
+    --border: #1e1e24; --text: #e0e0ee; --muted: #44445a;
+    --yellow: #ffd600; --green: #00e87a; --red: #ff3b3b; --blue: #3b9eff; --orange: #ff8c00;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Space Mono', monospace; font-size: 12px; padding: 32px 24px; max-width: 960px; margin: 0 auto; }
+  header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 38px; letter-spacing: 3px; line-height: 1; }
+  .logo span { color: var(--yellow); }
+  .section { margin-bottom: 32px; }
+  .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 2px; color: var(--yellow); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .block { background: var(--surface); border: 1px solid var(--border); border-radius: 2px; padding: 14px 18px; margin-bottom: 6px; }
+  .block-label { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+  .block-value { color: var(--text); font-size: 12px; line-height: 1.8; }
+  .row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 2px; font-size: 10px; margin: 1px 2px 1px 0; }
+  .tag-yellow { background: rgba(255,214,0,0.1); color: var(--yellow); border: 1px solid rgba(255,214,0,0.2); }
+  .tag-green  { background: rgba(0,232,122,0.1); color: var(--green);  border: 1px solid rgba(0,232,122,0.2); }
+  .tag-red    { background: rgba(255,59,59,0.1);  color: var(--red);   border: 1px solid rgba(255,59,59,0.2); }
+  .tag-blue   { background: rgba(59,158,255,0.1); color: var(--blue);  border: 1px solid rgba(59,158,255,0.2); }
+  .tag-muted  { background: rgba(68,68,90,0.2);   color: var(--muted); border: 1px solid var(--border); }
+  .crit { color: var(--red); font-weight: 700; }
+  .lock { color: var(--green); font-size: 10px; letter-spacing: 1px; background: rgba(0,232,122,0.08); border: 1px solid rgba(0,232,122,0.2); padding: 1px 6px; border-radius: 2px; }
+  .ci { display: flex; align-items: flex-start; gap: 10px; background: var(--surface2); border: 1px solid var(--border); padding: 10px 14px; border-radius: 2px; margin-bottom: 5px; }
+  .ci-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-top: 3px; flex-shrink: 0; }
+  .ci-name { font-weight: 700; color: #fff; font-size: 12px; margin-bottom: 3px; }
+  .ci-desc { color: var(--muted); font-size: 11px; line-height: 1.7; }
+  ul { list-style: none; margin-top: 4px; }
+  ul li::before { content: '→ '; color: var(--yellow); }
+  ul li.red::before { color: var(--red); }
+  ul li.green::before { color: var(--green); }
+  code { background: var(--surface2); padding: 1px 5px; border-radius: 2px; color: var(--blue); font-size: 11px; }
+  .alert { border-left: 3px solid var(--red); }
+  .locked { border-left: 3px solid var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">Toutie<span>Trader</span></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:1px;">PLAN DU BOT — v2.0</div>
+  </div>
+  <div style="font-size:10px;color:var(--green);letter-spacing:2px;">VERROUILLÉ</div>
+</header>
+
+<!-- 0. RÈGLES ABSOLUES -->
+<div class="section">
+  <div class="section-title">0. Règles absolues</div>
+  <div class="block alert">
+    <div class="block-value crit">
+      ① TOUTES les heures = heure Québec (EST/EDT). Sans exception. Converties à l'entrée du système, stockées UTC offset-aware, affichées heure Québec.<br>
+      ② Zéro Strategy hardcodée dans le moteur. Le moteur ne connaît aucune Strategy à l'avance.<br>
+      ③ La Strategy déclare — le moteur évalue. Une Strategy ne surcharge jamais un comportement du moteur.<br>
+      ④ Live et Replay = même moteur, mêmes fichiers Strategy. Zéro différence de comportement.<br>
+      ⑤ Rien hardcodé nulle part. Zéro chiffre fixe, zéro nom de Strategy, zéro paire en dur.
+    </div>
+  </div>
+</div>
+
+<!-- 1. VUE D'ENSEMBLE -->
+<div class="section">
+  <div class="section-title">1. Vue d'ensemble</div>
+  <div class="row-grid">
+    <div class="block"><div class="block-label">Langage</div><div class="block-value"><span class="tag tag-blue">C# WPF</span> .exe Windows</div></div>
+    <div class="block"><div class="block-label">Data broker</div><div class="block-value"><span class="tag tag-yellow">Python FastAPI</span> → MT5 (seul interlocuteur MT5)</div></div>
+    <div class="block"><div class="block-label">Paires Live</div><div class="block-value">Watchlist MT5 — dynamique</div></div>
+    <div class="block"><div class="block-label">Paires Replay</div><div class="block-value">Paires disponibles dans DuckDB (CSV importés)</div></div>
+    <div class="block"><div class="block-label">Timeframes</div><div class="block-value"><span class="tag tag-muted">M1</span><span class="tag tag-muted">M5</span><span class="tag tag-muted">M15</span><span class="tag tag-muted">H1</span><span class="tag tag-muted">H4</span><span class="tag tag-muted">D</span></div></div>
+    <div class="block"><div class="block-label">Compte</div><div class="block-value">Demo MT5 pour les tests</div></div>
+    <div class="block"><div class="block-label">Type d'ordre</div><div class="block-value"><span class="tag tag-green">Market orders uniquement</span></div></div>
+    <div class="block"><div class="block-label">Thème UI</div><div class="block-value">Dark — Noir / Rouge / Blanc</div></div>
+  </div>
+</div>
+
+<!-- 2. ARCHITECTURE -->
+<div class="section">
+  <div class="section-title">2. Architecture</div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">Python FastAPI — Mini-bot MT5</div><div class="ci-desc">Seul interlocuteur de MT5. C# ne parle JAMAIS directement à MT5.<ul><li>Endpoints : /status, /account, /candles, /order, /close_order</li><li>Toutes les timestamps retournées en heure Québec ISO 8601 offset-aware</li><li>MT5 retourne UTC → converti en heure Québec dans le FastAPI avant envoi au C#</li></ul></div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">StrategyLoader — Plug & Play via Roslyn <span class="lock">VERROUILLÉ</span></div><div class="ci-desc">Scanne <code>/Strategies/</code> au démarrage. Compile les .cs via Microsoft.CodeAnalysis (Roslyn).<ul><li>Nouvelle Strategy = glisser .cs + redémarrer. Zéro Visual Studio requis.</li><li>Apparaît automatiquement dans le dropdown Strategy</li><li>Erreur compilation → message dans UI, bot continue sans cette Strategy</li><li>Strategy retirée → disparaît au prochain redémarrage</li></ul></div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">StrategyRunner — Boucle principale</div><div class="ci-desc">Ordre fixe et déterministe à chaque bougie :<br><span style="color:var(--green);">Source → IndicatorEngine → SwingPointEngine → TrendEngine → Strategy.Evaluate() → RiskEngine → TradeManager → ExecutionManager</span><ul><li>Replay : source = DuckDB, vitesse x1/x2/x4/x8</li><li>Live : source = MT5ApiClient, attend close de chaque bougie</li></ul></div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">EventBus</div><div class="ci-desc">Bus central. Zéro couplage direct entre moteurs. Événements : NewCandleEvent, IndicatorsUpdatedEvent, TrendUpdatedEvent, TradeSignalEvent, TradeClosedEvent.</div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">IndicatorEngine</div><div class="ci-desc">Calcule en continu sur tous les TF, toutes les paires : Ichimoku complet, MACD, EMA50, EMA200. Calcul incrémental. La Strategy lit, ne recalcule jamais. Une Strategy NE PEUT PAS demander des indicateurs non fournis ici.</div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">SwingPointEngine</div><div class="ci-desc">Détecte HH/HL/LH/LL sur chaque TF en continu. N bougies de contexte = configurable par Strategy.</div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">TrendEngine <span class="lock">GLOBAL — NON PARAMÉTRABLE</span></div><div class="ci-desc">Calcule Bull/Bear/Range sur tous les TF, toutes les paires. Définition unique, non modifiable par Strategy.<ul>
+    <li class="green">Bull = EMA50 + EMA200 montent + HH/HL + prix au-dessus cloud</li>
+    <li class="red">Bear = EMA50 + EMA200 descendent + LL/LH + prix sous cloud</li>
+    <li>Range = EMA50 ou EMA200 plate + compression LH/HL</li>
+    <li>Seuil "plate" hardcodé dans TrendEngine</li>
+    <li>Une Strategy PEUT ignorer TrendState — elle l'inclut juste pas dans ses conditions</li>
+    <li>Une Strategy NE PEUT PAS modifier la logique Bull/Bear/Range</li>
+  </ul></div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">RiskEngine</div><div class="ci-desc">Calcule lot_size depuis : capital actuel + RiskPercent (Strategy) + distance SL en pips. Vérifie MaxSimultaneousTrades et MaxDailyDrawdownPercent. Zéro calcul de risk dans la Strategy.</div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">TradeManager</div><div class="ci-desc"><ul>
+    <li>Entrée = open de la bougie SUIVANT le signal (jamais sur la bougie du signal)</li>
+    <li>Vérifie SL et TP à chaque bougie</li>
+    <li>Évalue ForceExitConditions → UNE vraie = ferme immédiatement</li>
+    <li>Évalue OptionalExitConditions → UNE vraie + activée dans Settings = ferme</li>
+    <li>Au redémarrage : resynchronise depuis MT5 + DuckDB #2. Trades ouverts repris.</li>
+    <li>Un trade appartient au bot via tag/commentaire unique injecté dans l'ordre MT5</li>
+    <li>Une position par paire par direction. Zéro hedging.</li>
+  </ul></div></div></div>
+
+  <div class="ci"><div class="ci-dot"></div><div><div class="ci-name">ExecutionManager</div><div class="ci-desc"><ul>
+    <li>Live → MT5ApiClient.SendOrder() — market order uniquement</li>
+    <li>Replay → simule localement, sauvegarde dans DB Replay</li>
+    <li>Anti double-envoi : correlation_id UUID v4 par signal. Même ID déjà envoyé → ignore.</li>
+    <li>Partial fills : non supportés. Ordre rejeté = loggé, pas de retry.</li>
+    <li>Marché fermé ou ordre rejeté → loggé + alerte dans UI</li>
+  </ul></div></div></div>
+</div>
+
+<!-- 3. ISTRATEGY — CONTRAT FINAL -->
+<div class="section">
+  <div class="section-title">3. IStrategy — Contrat final <span class="lock">VERROUILLÉ</span></div>
+  <div class="block locked">
+    <div class="block-label">Règles absolues</div>
+    <div class="block-value crit">
+      Zéro méthode ShouldExit() — supprimée définitivement.<br>
+      Toutes les sorties sont déclaratives via listes de conditions.<br>
+      Une seule Strategy active à la fois. Settings ont priorité sur propriétés fixes si conflit.
+    </div>
+  </div>
+  <div class="block">
+    <div class="block-label">Propriétés — liste complète finale</div>
+    <div class="block-value" style="font-size:11px;line-height:2.1;">
+      <span class="tag tag-muted">string Name</span> Nom dans le dropdown<br>
+      <span class="tag tag-muted">string Timeframe</span> TF affiché dans le chart<br>
+      <span class="tag tag-muted">List&lt;string&gt; RequiredTimeframes</span> TF que le moteur doit calculer<br>
+      <span class="tag tag-muted">List&lt;string&gt; Indicators</span> Indicateurs affichés — valeurs : "Ichimoku" | "MACD" | "EMA50" | "EMA200"<br>
+      <span class="tag tag-muted">decimal RiskPercent</span> % capital par trade — surchargeable par Settings["RiskPercent"]<br>
+      <span class="tag tag-muted">int MaxSimultaneousTrades</span> Max trades ouverts simultanément toutes paires<br>
+      <span class="tag tag-muted">decimal MaxDailyDrawdownPercent</span> Bot stop si DD dépasse ce % dans la journée<br>
+      <span class="tag tag-muted">StopLossRule StopLoss</span> Type (AboveCloud|BelowCloud|SwingHigh|SwingLow|Fixed) + BufferPips<br>
+      <span class="tag tag-muted">TakeProfitRule TakeProfit</span> Type (RiskRatio|Fixed) + Ratio<br>
+      <span class="tag tag-muted">List&lt;StrategyCondition&gt; LongConditions</span> TOUTES vraies → entrer LONG<br>
+      <span class="tag tag-muted">List&lt;StrategyCondition&gt; ShortConditions</span> TOUTES vraies → entrer SHORT<br>
+      <span class="tag tag-muted">List&lt;StrategyCondition&gt; ForceExitConditions</span> UNE vraie → fermeture immédiate<br>
+      <span class="tag tag-muted">List&lt;StrategyCondition&gt; OptionalExitConditions</span> UNE vraie + activée Settings → fermeture<br>
+      <span class="tag tag-muted">Dictionary&lt;string,object&gt; Settings</span> Options UI — types valides : bool | decimal | int
+    </div>
+  </div>
+  <div class="block">
+    <div class="block-label">StrategyCondition</div>
+    <div class="block-value" style="font-size:11px;line-height:2.1;">
+      <span class="tag tag-muted">string Label</span> Affiché dans tooltip hover et popup trade<br>
+      <span class="tag tag-muted">string Timeframe</span> TF sur lequel évaluer<br>
+      <span class="tag tag-muted">Func&lt;IndicatorValues, TrendState, bool&gt; Expression</span> Lambda — reçoit valeurs moteur, retourne bool<br>
+      Évaluée sur bougie courante. Bougie précédente = champ privé dans la Strategy.
+    </div>
+  </div>
+</div>
+
+<!-- 4. MULTI-STRATEGY -->
+<div class="section">
+  <div class="section-title">4. Multi-strategy <span class="lock">VERROUILLÉ</span></div>
+  <div class="block locked">
+    <div class="block-value"><ul>
+      <li class="green">Une seule Strategy active à la fois — sélectionnée dans l'onglet Strategy</li>
+      <li>Plusieurs paires/indices tradées simultanément avec cette Strategy</li>
+      <li>Changement de Strategy s'applique au prochain Start uniquement</li>
+      <li>Impossible de changer de Strategy pendant un trade live ouvert</li>
+      <li>Chaque trade en DB lié à strategy_name + snapshot des Settings au moment du trade</li>
+    </ul></div>
+  </div>
+</div>
+
+<!-- 5. API FASTAPI -->
+<div class="section">
+  <div class="section-title">5. API FastAPI — Contrat exact <span class="lock">VERROUILLÉ</span></div>
+
+  <div class="block"><div class="block-label">GET /status</div><div class="block-value" style="font-size:11px;line-height:2;">
+    Réponse 200 : <code>{"python": true, "mt5": true}</code><br>
+    MT5 down : <code>{"python": true, "mt5": false}</code> — Timeout : 3s. Appelé toutes les 5s.
+  </div></div>
+
+  <div class="block"><div class="block-label">GET /account</div><div class="block-value" style="font-size:11px;line-height:2;">
+    Réponse 200 : <code>{"balance": 10000.00, "equity": 9850.00, "drawdown_percent": 1.5, "currency": "USD"}</code><br>
+    MT5 down : 503 + <code>{"error": "MT5 unavailable"}</code> — Timeout : 5s.
+  </div></div>
+
+  <div class="block"><div class="block-label">GET /candles</div><div class="block-value" style="font-size:11px;line-height:2;">
+    Params : <code>symbol</code>, <code>timeframe</code> (M1|M5|M15|H1|H4|D), <code>count</code> OU <code>from</code>+<code>to</code> ISO 8601<br>
+    Réponse 200 : <code>[{"time": "2024-01-23T08:45:00-05:00", "open": 1.10500, "high": 1.10800, "low": 1.10400, "close": 1.10750, "volume": 1250}]</code><br>
+    Timestamps heure Québec offset-aware. Prix 5 décimales. Volume entier. Timeout : 10s.
+  </div></div>
+
+  <div class="block"><div class="block-label">POST /order</div><div class="block-value" style="font-size:11px;line-height:2;">
+    Body : <code>{"correlation_id": "uuid-v4", "symbol": "EURUSD", "direction": "BUY", "lot_size": 0.01, "sl": 1.10200, "tp": 1.11300}</code><br>
+    Réponse 200 : <code>{"ticket": 123456, "fill_price": 1.10750, "time": "2024-01-23T08:46:00-05:00"}</code><br>
+    Rejeté : 422 + <code>{"error": "Order rejected", "reason": "..."}</code><br>
+    Marché fermé : 422 + <code>{"error": "Market closed"}</code><br>
+    correlation_id déjà reçu → 200 avec ticket original, pas de renvoi d'ordre.<br>
+    Timeout : 10s. Pas de retry. Rejet loggé dans DuckDB #2.
+  </div></div>
+
+  <div class="block"><div class="block-label">POST /close_order</div><div class="block-value" style="font-size:11px;line-height:2;">
+    Body : <code>{"ticket": 123456}</code><br>
+    Réponse 200 : <code>{"closed": true, "close_price": 1.11300, "time": "2024-01-23T09:15:00-05:00"}</code><br>
+    Ticket introuvable : 404 + <code>{"error": "Ticket not found"}</code> — Timeout : 10s.
+  </div></div>
+
+  <div class="block"><div class="block-label">Règles globales</div><div class="block-value" style="font-size:11px;line-height:2;"><ul>
+    <li>Toutes les dates ISO 8601 offset-aware heure Québec</li>
+    <li>Prix arrondis à 5 décimales. Lot size à 2 décimales.</li>
+    <li>Chaque ordre a un correlation_id UUID v4 généré côté C#</li>
+    <li>Python down → bouton "Start Trading" grisé + message UI</li>
+  </ul></div></div>
+</div>
+
+<!-- 6. SCHÉMAS DB -->
+<div class="section">
+  <div class="section-title">6. Schémas DB <span class="lock">VERROUILLÉ</span></div>
+
+  <div class="block"><div class="block-label">DuckDB #1 — Candles historiques (lecture seule)</div><div class="block-value" style="font-size:11px;line-height:2;">
+    <code>candles(symbol VARCHAR, timeframe VARCHAR, time TIMESTAMPTZ, open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT)</code><br>
+    PK : (symbol, timeframe, time) — Index composite identique.<br>
+    Tous les TF stockés séparément à l'import. Zéro reconstruction en temps réel.
+  </div></div>
+
+  <div class="block"><div class="block-label">DuckDB #2 — Trades live (persistant)</div><div class="block-value" style="font-size:11px;line-height:2;">
+    <code>trades(id UUID PK, symbol VARCHAR, strategy_name VARCHAR, strategy_settings JSON, direction VARCHAR, entry_time TIMESTAMPTZ, entry_price DOUBLE, sl DOUBLE, tp DOUBLE, exit_time TIMESTAMPTZ, exit_price DOUBLE, profit_loss DOUBLE, risk_dollars DOUBLE, lot_size DOUBLE, ticket_id BIGINT, correlation_id UUID, exit_reason VARCHAR, conditions_met JSON, error_log VARCHAR)</code><br>
+    Index : (symbol), (entry_time), (strategy_name)<br>
+    strategy_settings : snapshot JSON des Settings au moment du trade<br>
+    conditions_met : liste JSON des labels de conditions remplies au moment du signal<br>
+    exit_reason : "TP" | "SL" | "ForceExit:[label]" | "OptionalExit:[label]"<br>
+    error_log : null si succès, message si erreur
+  </div></div>
+
+  <div class="block"><div class="block-label">DB Replay — Trades temporaires</div><div class="block-value" style="font-size:11px;">
+    Même schéma que DuckDB #2. Fichier <code>replay_trades.db</code>.<br>
+    Wipé à fermeture app et sur bouton Reset Replay. Recréé à chaque session.
+  </div></div>
+</div>
+
+<!-- 7. RÈGLES DE TEMPS -->
+<div class="section">
+  <div class="section-title">7. Règles de temps <span class="lock">VERROUILLÉ</span></div>
+  <div class="block locked"><div class="block-value"><ul>
+    <li class="green">Stockage DB : TIMESTAMPTZ UTC offset-aware — converti dès l'entrée dans le système</li>
+    <li class="green">Affichage UI : heure Québec partout (EST = UTC-5, EDT = UTC-4)</li>
+    <li class="green">DST géré par TimeZoneInfo C# zone "America/Toronto"</li>
+    <li>MT5 retourne UTC → converti en heure Québec dans Python FastAPI avant envoi au C#</li>
+    <li>Format affichage UI : "23 janvier 2024, 8h45" (sans secondes)</li>
+    <li>Format logs/API : ISO 8601 offset-aware ex: 2024-01-23T08:45:00-05:00</li>
+  </ul></div></div>
+</div>
+
+<!-- 8. UI -->
+<div class="section">
+  <div class="section-title">8. UI — Application Windows</div>
+
+  <div class="block"><div class="block-label">Éléments permanents (toutes pages)</div><div class="block-value"><ul>
+    <li>Bouton "Start Trading" toujours visible en haut</li>
+    <li>Indicateur connexion : Python ✓/✗ — MT5 ✓/✗ — mis à jour toutes les 5s</li>
+    <li>Navigation : Accueil | Historique | Replay | Strategy | Settings</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">États boutons — règles <span class="lock">VERROUILLÉ</span></div><div class="block-value" style="font-size:11px;line-height:2;"><ul>
+    <li class="red">"Start Trading" disabled si : Python down, MT5 down, replay en cours</li>
+    <li class="red">"Start Replay" disabled si : trading live en cours, aucune Strategy sélectionnée, dates invalides</li>
+    <li>"Pause Replay" visible seulement si replay en cours</li>
+    <li class="red">"Reset Replay" disabled si replay en cours (doit Pause d'abord)</li>
+    <li class="red">Dropdown Strategy disabled si trading live en cours</li>
+    <li class="red">Settings non modifiables si trade live ouvert. S'appliquent au prochain Start.</li>
+    <li class="red">Risk% non modifiable pendant un trade live ouvert</li>
+    <li>Erreur réseau → message inline, pas de popup bloquant</li>
+    <li class="red">Changement Strategy en cours de replay : impossible. Stop + Reset requis.</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">Page Accueil</div><div class="block-value"><ul>
+    <li>Capital MT5 temps réel : balance, equity, drawdown</li>
+    <li>Statut bot : actif/inactif, Strategy en cours, dernière action</li>
+    <li>Liste paires actives + pip — rempli quand bot live fonctionnel</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">Page Historique</div><div class="block-value"><ul>
+    <li>Trades depuis DuckDB #2</li>
+    <li>Colonnes : symbole, risk$$, prix entrée, TP, SL, profit/perte, date/heure entrée, date/heure sortie (heure Québec)</li>
+    <li>Double-click → popup Trade (nouvelle fenêtre séparée, resizable)</li>
+  </ul></div></div>
+
+  <div class="block alert"><div class="block-label">Page Replay <span class="crit">— PRIORITÉ ABSOLUE</span></div><div class="block-value"><ul>
+    <li class="red">ÉTAPE ZÉRO : bougies défilent proprement AVANT tout autre feature. Si ça bug ici, on avance pas.</li>
+    <li>Chart : TradingView Lightweight Charts via WebView2 — rendu GPU, historique complet</li>
+    <li>TF affiché = Strategy.Timeframe</li>
+    <li>Indicateurs selon Strategy.Indicators — toujours visibles</li>
+    <li>Coin haut gauche chart : date/heure bougie courante (heure Québec, sans secondes)</li>
+    <li>Hover bougie → tooltip : tendance par TF, valeurs indicateurs, conditions ✓/✗, raison si pas d'entrée</li>
+    <li>Dropdown symbole → charge historique complet jusqu'au moment actuel instantanément</li>
+    <li>Buffer adaptatif : x1=60 | x2=120 | x4=240 | x8=480 bougies ahead. Réajuste immédiatement.</li>
+    <li>Contrôles : Start | Pause | Stop | Reset + Slider x1/x2/x4/x8</li>
+    <li>Sélecteurs date début + date fin</li>
+    <li>Capital de départ : textfield</li>
+    <li>Barre progression : date début ━━━●━━━ date fin</li>
+    <li>Panneau sous chart : capital actuel, wins, losses, drawdown, equity curve, liste trades</li>
+    <li>Click trade liste → popup Trade</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">Popup Trade (live + replay)</div><div class="block-value"><ul>
+    <li>Chart en haut : flèche entrée, flèche sortie, ligne SL, ligne TP</li>
+    <li>Info en bas : symbole, direction, prix entrée/sortie, SL, TP, profit/perte, risk$$, dates (heure Québec)</li>
+    <li>Raison d'entrée : conditions remplies (depuis conditions_met DB)</li>
+    <li>Raison de sortie : TP | SL | ForceExit:[label] | OptionalExit:[label]</li>
+    <li>Resizable. Taille par défaut à ajuster.</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">Page Strategy</div><div class="block-value"><ul>
+    <li>Dropdown : Strategies chargées depuis /Strategies/ par StrategyLoader</li>
+    <li>Options rendues dynamiquement depuis Strategy.Settings</li>
+    <li>Source unique pour live ET replay</li>
+    <li>Désactivée si trading live en cours</li>
+  </ul></div></div>
+
+  <div class="block"><div class="block-label">Page Settings</div><div class="block-value"><ul>
+    <li>% risque par trade (textfield global)</li>
+    <li>S'applique au prochain Start uniquement. Non modifiable si trade live ouvert.</li>
+  </ul></div></div>
+</div>
+
+<!-- 9. FLUX DE DONNÉES -->
+<div class="section">
+  <div class="section-title">9. Flux de données</div>
+  <div class="block"><div class="block-value" style="font-size:12px;line-height:2.5;">
+    <span style="color:var(--blue)">MT5</span> <span style="color:var(--muted)">←→</span>
+    <span style="color:var(--yellow)">Python FastAPI</span> <span style="color:var(--muted)">←→</span>
+    <span style="color:var(--text)">C# WPF</span> <span style="color:var(--muted)">←→</span>
+    <span style="color:var(--green)">DuckDB</span><br>
+    <span style="color:var(--muted);font-size:11px;">
+      Python = seul interlocuteur MT5 (données + ordres) via REST<br>
+      C# = moteur + UI + logique Strategy<br>
+      DuckDB #1 = candles replay | DuckDB #2 = trades live | DB Replay = trades temp
+    </span>
+  </div></div>
+</div>
+
+<!-- 10. GPU & PERFORMANCE -->
+<div class="section">
+  <div class="section-title">10. GPU & Performance <span class="lock">VERROUILLÉ</span></div>
+
+  <div class="block alert">
+    <div class="block-label">🔵 Niveau 1 — GPU UI (Obligatoire — V1)</div>
+    <div class="block-value">
+      Objectif : Replay ultra fluide. <span class="crit">Priorité #1 du bot.</span><br>
+      Rendu chart via WebView2 (Chromium GPU).<ul>
+        <li>Virtualisation des données — afficher seulement les bougies visibles à l'écran</li>
+        <li>Chunk loading intelligent — charger par blocs de 500–2000 bougies</li>
+        <li>Zéro rerender complet — update uniquement la dernière bougie</li>
+        <li>Buffer mémoire propre — cache des bougies déjà chargées</li>
+        <li>Throttling UI — max 60 FPS</li>
+      </ul>
+      Résultat attendu : scroll fluide, replay x1→x8 sans lag, changement symbol/timeframe instantané.
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-label">🟢 Niveau 2 — CPU Scale (Préparé — V1/V2)</div>
+    <div class="block-value">
+      Objectif : Supporter beaucoup de données sans casser le replay. CPU optimisé uniquement.<ul>
+        <li>Calcul incrémental des indicateurs — jamais recalcul complet</li>
+        <li>Cache par symbole + timeframe</li>
+        <li>Multi-thread : thread moteur | thread UI | thread data loader — séparés</li>
+        <li>Lecture DuckDB par chunks — jamais full load en mémoire</li>
+        <li>Préchargement intelligent — buffer adaptatif replay (x1=60 | x2=120 | x4=240 | x8=480)</li>
+      </ul>
+      Résultat attendu : 10–50 symboles sans crash, plusieurs TF simultanés, replay accéléré stable.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- 11. OPTIMIZER — MODULE SÉPARÉ -->
+<!-- ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">11. Optimizer <span class="tag tag-muted">DERNIÈRE PRIORITÉ</span></div>
+
+  <div class="block alert">
+    <div class="block-label">Principe</div>
+    <div class="block-value crit">Module complètement séparé du bot principal. Le bot reste clean. L'optimizer utilise le même moteur, les mêmes Strategy, les mêmes données DuckDB.</div>
+  </div>
+
+  <div class="block">
+    <div class="block-label">Comment ça fonctionne</div>
+    <div class="block-value"><ul>
+      <li>Chaque Setting d'une Strategy peut avoir un mode <strong>valeur fixe</strong> ou <strong>range (de / à / pas)</strong></li>
+      <li>L'optimizer génère toutes les combinaisons des ranges définis</li>
+      <li>Lance un replay/backtest complet par combinaison</li>
+      <li>Sauvegarde et classe les résultats selon un score multi-critères</li>
+      <li>V1 : brute force multi-thread CPU — V2 : GPU compute (CUDA/OpenCL)</li>
+    </ul></div>
+  </div>
+
+  <div class="block">
+    <div class="block-label">Score multi-critères (pas juste le profit)</div>
+    <div class="block-value"><ul>
+      <li>Net profit</li>
+      <li>Max drawdown</li>
+      <li>Profit factor</li>
+      <li>Win rate</li>
+      <li>Nombre de trades (pénalité si moins de 30 — pas assez de données)</li>
+      <li>Average RR</li>
+      <li>Stabilité entre symboles sélectionnés pour le run</li>
+    </ul></div>
+  </div>
+
+  <div class="block">
+    <div class="block-label">Garde-fous anti-overfitting</div>
+    <div class="block-value"><ul>
+      <li>Période in-sample (entraînement) + période out-of-sample (validation) — obligatoires</li>
+      <li>Walk-forward validation — V2</li>
+      <li>Pénalité combinaisons avec trop peu de trades</li>
+      <li>Score calculé sur les paires sélectionnées pour ce run uniquement</li>
+    </ul></div>
+  </div>
+
+  <div class="block">
+    <div class="block-label">UI — Onglet Optimizer</div>
+    <div class="block-value"><ul>
+      <li>Sélecteur Strategy</li>
+      <li>Pour chaque Setting optimisable : checkbox "Optimiser" + champ De + champ À + champ Pas</li>
+      <li>Sélecteur symboles + période (in-sample + out-of-sample)</li>
+      <li>Bouton Start Optimizer</li>
+      <li>Tableau résultats classés : toutes les métriques par combinaison</li>
+      <li>Chaque ligne = une combinaison testée — affiche les métriques ET les valeurs exactes des settings qui ont produit ce résultat</li>
+      <li>Colonnes : score global, net profit, max drawdown, profit factor, win rate, nb trades, avg RR — + une colonne par setting optimisé avec sa valeur</li>
+      <li>Bouton "Appliquer cette combinaison" → injecte les valeurs dans la Strategy</li>
+    </ul></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════ -->
+<!-- 12. RESTE À DÉFINIR -->
+<!-- ══════════════════════════════════════════ -->
+  <div class="block"><div class="block-value" style="color:var(--muted);line-height:2;">
+    → WebUI (connexion future avec l'exe)<br>
+    → Tests d'acceptation formels (scénarios précis, dataset figé, tolérance replay/live)<br>
+    → Politique d'archivage DuckDB #2 (durée de rétention des trades live)
+  </div></div>
+</div>
+
+</body>
+</html>
