@@ -507,11 +507,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\ToutieTrader.Data.csproj",
+      "projectUniqueName": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\ToutieTrader.Data.csproj",
       "projectName": "ToutieTrader.Data",
-      "projectPath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\ToutieTrader.Data.csproj",
+      "projectPath": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\ToutieTrader.Data.csproj",
       "packagesPath": "C:\\Users\\XBurnsX\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\obj\\",
+      "outputPath": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Data\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\XBurnsX\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -526,8 +526,8 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {
-              "projectPath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj"
+            "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {
+              "projectPath": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj"
             }
           }
         }

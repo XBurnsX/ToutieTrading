@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {}
+    "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {}
   },
   "projects": {
-    "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {
+    "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj",
+        "projectUniqueName": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj",
         "projectName": "ToutieTrader.Core",
-        "projectPath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj",
+        "projectPath": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\ToutieTrader.Core.csproj",
         "packagesPath": "C:\\Users\\XBurnsX\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\obj\\",
+        "outputPath": "c:\\Users\\XBurnsX\\ToutieTrading\\ToutieTrader.Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\XBurnsX\\AppData\\Roaming\\NuGet\\NuGet.Config"
