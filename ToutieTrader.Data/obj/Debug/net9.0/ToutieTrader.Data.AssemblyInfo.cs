@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ToutieTrader.Data")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+45fb6926250f0f2be8f73efad1d7b63b39d5d72f")]
 [assembly: System.Reflection.AssemblyProductAttribute("ToutieTrader.Data")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ToutieTrader.Data")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
