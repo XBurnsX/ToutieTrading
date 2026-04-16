@@ -392,8 +392,39 @@ public sealed class ReplayService
         var engine   = new IndicatorEngine(new EventBus());
         var swings   = new SwingPointEngine();
         var trendEng = new TrendEngine(new EventBus(), engine, swings);
-        var open     = new List<ReplayTrade>();
-        var state    = new ReplayState { Capital = cfg.StartingCapital, Peak = cfg.StartingCapital };
+        // ── Moteur de trade — identique Live/Replay ──────────────────────────────
+        double capital       = cfg.StartingCapital;
+        double peak          = cfg.StartingCapital;
+        int    wins          = 0;
+        int    losses        = 0;
+        double dailyDrawdown = 0;
+
+        var replayBus = new EventBus();
+        var riskEng   = new RiskEngine();
+        var simExec   = new SimulatedOrderExecutor();
+
+        Func<TradeRecord, Task> saveTrade = record =>
+        {
+            if (record.ErrorLog != null) return Task.CompletedTask;
+            if (!record.ExitPrice.HasValue)
+            {
+                OnTradeOpened?.Invoke(record);
+            }
+            else
+            {
+                double pl = record.ProfitLoss ?? 0;
+                capital  += pl;
+                if (capital > peak) peak = capital;
+                if (pl >= 0) wins++; else losses++;
+                OnTradeClosed?.Invoke(record);
+                if (_tradeRepo != null)
+                    return _tradeRepo.SaveTradeAsync(record, isReplay: true);
+            }
+            return Task.CompletedTask;
+        };
+
+        var execMgr  = new ExecutionManager(replayBus, simExec, riskEng, saveTrade);
+        var tradeMgr = new TradeManager(replayBus, engine, trendEng, execMgr);
 
         try
         {
@@ -443,7 +474,8 @@ public sealed class ReplayService
                 if (isStrategyTf && cfg.Strategy != null && iv != null)
                 {
                     await EvaluateAsync(candle, iv, cfg.Strategy, engine, trendEng,
-                                        open, state, ct, emitConditions: isDisplay);
+                                        tradeMgr, riskEng, capital, dailyDrawdown,
+                                        ct, emitConditions: isDisplay);
                 }
 
                 // ── Envoi au chart : bougies du symbole+TF display ─────────────
@@ -476,8 +508,8 @@ public sealed class ReplayService
                 // Stats — émission seulement après une bougie affichée (ou quand la stratégie tourne)
                 if (isDisplay || isStrategyTf)
                 {
-                    double dd = state.Peak > 0 ? Math.Max(0, (state.Peak - state.Capital) / state.Peak * 100.0) : 0;
-                    OnStatsUpdate?.Invoke(state.Capital, state.Wins, state.Losses, dd);
+                    double dd = peak > 0 ? Math.Max(0, (peak - capital) / peak * 100.0) : 0;
+                    OnStatsUpdate?.Invoke(capital, wins, losses, dd);
                 }
 
                 // Pause
@@ -593,64 +625,22 @@ public sealed class ReplayService
 
     // ── Strategy Evaluation ───────────────────────────────────────────────────
 
+    /// <summary>
+    /// Évalue les conditions d'entrée et délègue toute l'exécution au même moteur que Live.
+    /// TradeManager gère : pending signals → Open bougie suivante, SL/TP, ForceExit.
+    /// ExecutionManager gère : SimulatedOrderExecutor (IsReplay=true) → fills simulés.
+    /// </summary>
     private async Task EvaluateAsync(
         Candle candle, IndicatorValues iv, IStrategy strategy,
         IndicatorEngine engine, TrendEngine trendEng,
-        List<ReplayTrade> open, ReplayState state,
+        TradeManager tradeMgr, RiskEngine riskEng,
+        double capital, double dailyDrawdown,
         CancellationToken ct, bool emitConditions)
     {
         var chartTrend = trendEng.GetTrend(candle.Symbol, candle.Timeframe)
             ?? new TrendState { Timeframe = candle.Timeframe, Trend = TrendDirection.Range };
 
-        // 1. Sorties des trades ouverts — SEULEMENT ceux du symbole courant
-        for (int i = open.Count - 1; i >= 0; i--)
-        {
-            var t = open[i];
-            if (t.Record.Symbol != candle.Symbol) continue;
-
-            string? reason = null;
-            double  exitPx = candle.Close;
-
-            if      (t.Direction == "BUY"  && candle.Low  <= t.Sl) { reason = "SL"; exitPx = t.Sl; }
-            else if (t.Direction == "SELL" && candle.High >= t.Sl) { reason = "SL"; exitPx = t.Sl; }
-            else if (t.Direction == "BUY"  && candle.High >= t.Tp) { reason = "TP"; exitPx = t.Tp; }
-            else if (t.Direction == "SELL" && candle.Low  <= t.Tp) { reason = "TP"; exitPx = t.Tp; }
-            else
-            {
-                foreach (var cond in strategy.ForceExitConditions)
-                {
-                    if (cond.ApplicableDirection != null && cond.ApplicableDirection != t.Direction) continue;
-                    var condTf    = string.IsNullOrEmpty(cond.Timeframe) ? candle.Timeframe : cond.Timeframe;
-                    var condIv    = engine.GetIndicators(candle.Symbol, condTf) ?? iv;
-                    var condTrend = trendEng.GetTrend(candle.Symbol, condTf) ?? chartTrend;
-                    if (cond.Expression(condIv, condTrend)) { reason = $"ForceExit:{cond.Label}"; break; }
-                }
-            }
-
-            if (reason == null) continue;
-
-            double pipSize = candle.Symbol.Contains("JPY") ? 0.01 : 0.0001;
-            double pips    = t.Direction == "BUY"
-                ? (exitPx - t.Entry) / pipSize
-                : (t.Entry - exitPx) / pipSize;
-            double pl = Math.Round(pips * t.LotSize * 10.0, 2);
-
-            state.Capital += pl;
-            if (state.Capital > state.Peak) state.Peak = state.Capital;
-            if (pl >= 0) state.Wins++; else state.Losses++;
-
-            t.Record.ExitTime   = candle.Time;
-            t.Record.ExitPrice  = exitPx;
-            t.Record.ProfitLoss = pl;
-            t.Record.ExitReason = reason;
-
-            OnTradeClosed?.Invoke(t.Record);
-            if (_tradeRepo != null)
-                await _tradeRepo.SaveTradeAsync(t.Record, isReplay: true);
-            open.RemoveAt(i);
-        }
-
-        // 2. Évaluer conditions — évaluées pour l'ouverture de trade ET pour le HUD chart
+        // Évaluer conditions — pour l'affichage HUD ET la détection de signal
         var longResults  = strategy.LongConditions. Select(c => {
             var condTf = string.IsNullOrEmpty(c.Timeframe) ? candle.Timeframe : c.Timeframe;
             var condIv = engine.GetIndicators(candle.Symbol, condTf) ?? iv;
@@ -664,71 +654,57 @@ public sealed class ReplayService
             return (c.Label, c.Expression(condIv, condTr));
         }).ToList();
 
-        // Émission des conditions au tooltip chart UNIQUEMENT si c'est la bougie affichée
-        // Timestamp doit matcher celui de la bougie envoyée au chart (fake UTC Québec)
+        // Émission conditions au tooltip chart (bougie affichée seulement)
         if (emitConditions)
             OnConditionsEvaluated?.Invoke(TimeZoneHelper.ToChartUnixSeconds(candle.Time), longResults, shortResults);
 
-        // 3. MaxSimultaneousTrades = global (tous symboles confondus)
-        if (open.Count >= strategy.MaxSimultaneousTrades) return;
+        // Détection signal → QueueSignal → TradeManager (même chemin que Live)
+        string?      direction = null;
+        List<string> metLabels = [];
 
-        if (longResults.Count > 0 && longResults.All(r => r.Item2))
-            TryOpenTrade("BUY", candle, iv, strategy, open, state.Capital);
+        if      (longResults .Count > 0 && longResults .All(r => r.Item2))
+            { direction = "BUY";  metLabels = longResults .Select(r => r.Label).ToList(); }
         else if (shortResults.Count > 0 && shortResults.All(r => r.Item2))
-            TryOpenTrade("SELL", candle, iv, strategy, open, state.Capital);
-    }
+            { direction = "SELL"; metLabels = shortResults.Select(r => r.Label).ToList(); }
 
-    private void TryOpenTrade(
-        string direction, Candle candle, IndicatorValues iv,
-        IStrategy strategy, List<ReplayTrade> open, double capital)
-    {
-        double pipSize = candle.Symbol.Contains("JPY") ? 0.01 : 0.0001;
-
-        double sl = strategy.StopLoss.Type == StopLossType.Custom
-            ? strategy.StopLoss.CustomCompute?.Invoke(iv, direction) ?? iv.Close
-            : CalcStdSl(strategy.StopLoss, direction, iv, pipSize);
-
-        double tp = strategy.TakeProfit.Type == TakeProfitType.Custom
-            ? strategy.TakeProfit.CustomCompute?.Invoke(iv, direction, candle.Close, sl) ?? candle.Close
-            : CalcStdTp(strategy.TakeProfit, direction, candle.Close, sl);
-
-        if (direction == "BUY"  && sl >= candle.Close) return;
-        if (direction == "SELL" && sl <= candle.Close) return;
-
-        decimal riskPct = strategy.Settings.TryGetValue("RiskPercent", out var rp)
-            ? Convert.ToDecimal(rp) : strategy.RiskPercent;
-
-        double riskDollars = capital * (double)riskPct / 100.0;
-        double slPips      = Math.Abs(candle.Close - sl) / pipSize;
-        double lotSize     = slPips > 0 ? Math.Round(riskDollars / (slPips * 10.0), 2) : 0.01;
-        lotSize = Math.Max(0.01, Math.Min(lotSize, 100.0));
-
-        var record = new TradeRecord
+        if (direction != null)
         {
-            Symbol           = candle.Symbol,
-            StrategyName     = strategy.Name,
-            StrategySettings = JsonSerializer.Serialize(strategy.Settings),
-            Direction        = direction,
-            EntryTime        = candle.Time,
-            EntryPrice       = candle.Close,
-            Sl               = sl,
-            Tp               = tp,
-            RiskDollars      = Math.Round(riskDollars, 2),
-            LotSize          = lotSize,
-            CorrelationId    = Guid.NewGuid().ToString(),
-        };
+            double pipSize = candle.Symbol.Contains("JPY") ? 0.01 : 0.0001;
 
-        open.Add(new ReplayTrade
-        {
-            Record    = record,
-            Direction = direction,
-            Entry     = candle.Close,
-            Sl        = sl,
-            Tp        = tp,
-            LotSize   = lotSize,
-        });
+            double sl = strategy.StopLoss.Type == StopLossType.Custom
+                ? strategy.StopLoss.CustomCompute?.Invoke(iv, direction) ?? iv.Close
+                : CalcStdSl(strategy.StopLoss, direction, iv, pipSize);
 
-        OnTradeOpened?.Invoke(record);
+            double tp = strategy.TakeProfit.Type == TakeProfitType.Custom
+                ? strategy.TakeProfit.CustomCompute?.Invoke(iv, direction, candle.Close, sl) ?? candle.Close
+                : CalcStdTp(strategy.TakeProfit, direction, candle.Close, sl);
+
+            var signal = new TradeSignal
+            {
+                Symbol        = candle.Symbol,
+                Direction     = direction,
+                EntryPrice    = candle.Close,   // écrasé par Open bougie suivante dans TradeManager
+                Sl            = sl,
+                Tp            = tp,
+                CorrelationId = Guid.NewGuid().ToString(),
+                ConditionsMet = metLabels,
+            };
+
+            int openCount = tradeMgr.GetOpenTrades().Count;
+            var risk = riskEng.Calculate(
+                capital, (double)strategy.RiskPercent,
+                candle.Close, sl, candle.Symbol, strategy,
+                openCount, dailyDrawdown);
+
+            if (risk != null)
+            {
+                signal = signal with { LotSize = risk.LotSize };
+                tradeMgr.QueueSignal(signal, strategy);
+            }
+        }
+
+        // TradeManager : exécute signaux en attente (Open bougie suivante) + SL/TP/ForceExit
+        await tradeMgr.ProcessCandleAsync(candle, ct);
     }
 
     // ── SL/TP Standards ───────────────────────────────────────────────────────
@@ -754,21 +730,22 @@ public sealed class ReplayService
 
     // ── Interne ───────────────────────────────────────────────────────────────
 
-    private sealed class ReplayTrade
+    /// <summary>
+    /// Exécuteur simulé pour le Replay.
+    /// SendOrderAsync : fill au prix signal.EntryPrice (= Open bougie suivante, injecté par TradeManager).
+    /// IsReplay = true : ExecutionManager utilise le chemin simulation (SL/TP/Close de bougie)
+    ///            sans jamais appeler CloseOrderAsync.
+    /// </summary>
+    private sealed class SimulatedOrderExecutor : IOrderExecutor
     {
-        public required TradeRecord Record    { get; init; }
-        public required string      Direction { get; init; }
-        public required double      Entry     { get; init; }
-        public required double      Sl        { get; init; }
-        public required double      Tp        { get; init; }
-        public required double      LotSize   { get; init; }
-    }
+        public bool IsReplay => true;
 
-    private sealed class ReplayState
-    {
-        public double Capital { get; set; }
-        public double Peak    { get; set; }
-        public int    Wins    { get; set; }
-        public int    Losses  { get; set; }
+        public Task<(long TicketId, double FillPrice, DateTimeOffset FillTime)>
+            SendOrderAsync(TradeSignal signal, CancellationToken ct)
+            => Task.FromResult((0L, signal.EntryPrice, DateTimeOffset.UtcNow));
+
+        public Task<(double ClosePrice, DateTimeOffset CloseTime)>
+            CloseOrderAsync(long ticketId, string symbol, CancellationToken ct)
+            => throw new NotSupportedException("SimulatedOrderExecutor: CloseOrderAsync non appelé en Replay");
     }
 }

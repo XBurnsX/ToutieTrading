@@ -73,7 +73,9 @@ public sealed class ExecutionManager
 
             record.TicketId   = ticketId;
             record.EntryPrice = fillPrice;
-            record.EntryTime  = TimeZoneHelper.ToQuebec(fillTime);
+            // Replay : candleTime = Open de la vraie bougie d'entrée (déjà timezone-aware)
+            // Live   : fillTime   = heure du fill broker, convertie en heure Québec
+            record.EntryTime  = _executor.IsReplay ? candleTime : TimeZoneHelper.ToQuebec(fillTime);
             record.LotSize    = signal.LotSize;
         }
         catch (Exception ex)
@@ -101,14 +103,15 @@ public sealed class ExecutionManager
 
         try
         {
-            if (record.TicketId.HasValue)
+            if (record.TicketId.HasValue && !_executor.IsReplay)
             {
+                // Live : fermeture réelle via le broker
                 (closePrice, closeTime) =
                     await _executor.CloseOrderAsync(record.TicketId.Value, record.Symbol, ct);
             }
             else
             {
-                // Replay sans ticket réel : simuler avec le close de la bougie
+                // Replay / simulation : prix exact du SL, TP, ou close de bougie
                 closePrice = exitReason == "SL" ? record.Sl!.Value
                            : exitReason == "TP" ? record.Tp!.Value
                            : candle.Close;
