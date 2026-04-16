@@ -1,0 +1,120 @@
+<Page x:Class="ToutieTrader.UI.Pages.AccueilPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{StaticResource BgBrush}"
+      Title="Accueil">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,28" MaxWidth="900">
+
+            <!-- Titre -->
+            <TextBlock Text="ACCUEIL"
+                       FontSize="11" FontWeight="SemiBold"
+                       Foreground="{StaticResource MutedBrush}"
+                       Margin="0,0,0,20"/>
+
+            <!-- ── Compte MT5 ──────────────────────────────────────────────── -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="2"
+                    Padding="24,18" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Balance -->
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="BALANCE"
+                                   FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtBalance"
+                                   Text="—"
+                                   FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <TextBlock x:Name="TxtCurrency"
+                                   Text=""
+                                   FontSize="11"
+                                   Foreground="{StaticResource MutedBrush}"/>
+                    </StackPanel>
+
+                    <!-- Equity -->
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="EQUITY"
+                                   FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtEquity"
+                                   Text="—"
+                                   FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"/>
+                    </StackPanel>
+
+                    <!-- Drawdown -->
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="DRAWDOWN"
+                                   FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtDrawdown"
+                                   Text="—"
+                                   FontSize="24" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DangerBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ── Statut bot ──────────────────────────────────────────────── -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="2"
+                    Padding="24,18" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="STATUT BOT"
+                                   FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Margin="0,0,0,6"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="DotBotStatus" Width="8" Height="8"
+                                     Fill="{StaticResource MutedBrush}"
+                                     VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtBotStatus"
+                                       Text="Inactif"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="DERNIÈRE ACTION"
+                                   FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtLastAction"
+                                   Text="—"
+                                   FontSize="13"
+                                   Foreground="{StaticResource TextBrush}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Bouton refresh -->
+            <Button x:Name="BtnRefresh"
+                    Content="Rafraîchir"
+                    Style="{StaticResource BtnSecondary}"
+                    HorizontalAlignment="Left"
+                    Click="BtnRefresh_Click"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #0D0D0F; overflow: hidden; }
+
+#wrapper { position: relative; width: 100%; height: 100%; }
+#chart   { width: 100%; height: 100%; }
+
+#cloud {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+#legend {
+    position: absolute;
+    top: 8px; left: 12px;
+    font: 11px/1.8 'Segoe UI', sans-serif;
+    color: #5A5A72;
+    pointer-events: none;
+    z-index: 10;
+}
+#legend span { margin-right: 14px; }
+#legend .tenkan  { color: #FF8C00; }
+#legend .kijun   { color: #228B22; }
+#legend .ssa     { color: rgba(0,200,90,0.9); }
+#legend .ssb     { color: rgba(232,0,45,0.9); }
+#legend .chikou  { color: #FFFFFF; }
+
+#ohlc {
+    position: absolute;
+    top: 28px; left: 12px;
+    font: 11px/1.6 'Segoe UI', sans-serif;
+    color: #8888A0;
+    pointer-events: none;
+    z-index: 10;
+}
+#ohlc span { margin-right: 10px; }
+#ohlc .up   { color: #00C85A; }
+#ohlc .down { color: #E8002D; }
+#ohlc .lbl  { color: #5A5A72; }
+
+/* ── Tooltip conditions ────────────────────────────────────────────── */
+#tooltip {
+    display: none;
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    background: #16161E;
+    border: 1px solid #2A2A38;
+    border-radius: 4px;
+    padding: 10px 14px;
+    font: 11px/1.6 'Segoe UI', sans-serif;
+    color: #A0A0B8;
+    min-width: 200px;
+    max-width: 320px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+#tooltip .tt-dir {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 6px 0 3px;
+    color: #5A5A72;
+}
+#tooltip .tt-dir:first-child { margin-top: 0; }
+#tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
+#tooltip .tt-row .ic { font-size: 10px; width: 10px; flex-shrink: 0; }
+#tooltip .pass .ic { color: #00C85A; }
+#tooltip .fail .ic { color: #E8002D; }
+#tooltip .pass     { color: #C8C8D8; }
+#tooltip .fail     { color: #606070; }
+</style>
+</head>
+<body>
+<div id="wrapper">
+    <div id="chart"></div>
+    <canvas id="cloud"></canvas>
+    <div id="tooltip"></div>
+    <div id="legend">
+        <span class="tenkan">— Tenkan</span>
+        <span class="kijun">— Kijun</span>
+        <span class="ssa">▬ SSA</span>
+        <span class="ssb">▬ SSB</span>
+        <span class="chikou">╌ Chikou</span>
+    </div>
+    <div id="ohlc"></div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+// ── Chart ─────────────────────────────────────────────────────────────────────
+const chartEl  = document.getElementById('chart');
+const cloudEl  = document.getElementById('cloud');
+const cloudCtx = cloudEl.getContext('2d');
+
+const chart = LightweightCharts.createChart(chartEl, {
+    width:  chartEl.clientWidth,
+    height: chartEl.clientHeight,
+    layout: {
+        backgroundColor: '#0D0D0F',
+        textColor: '#5A5A72',
+    },
+    grid: {
+        vertLines: { color: '#222228' },
+        horzLines: { color: '#222228' },
+    },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    timeScale: {
+        borderColor:    '#222228',
+        timeVisible:    true,
+        secondsVisible: false,
+    },
+    rightPriceScale: { borderColor: '#222228' },
+    handleScroll: true,
+    handleScale:  true,
+});
+
+// ── Prix 5 décimales forex ────────────────────────────────────────────────────
+const priceFmt = { type: 'price', precision: 5, minMove: 0.00001 };
+
+// ── Séries ────────────────────────────────────────────────────────────────────
+const candleSeries = chart.addCandlestickSeries({
+    upColor:         '#00C85A',
+    downColor:       '#E8002D',
+    borderUpColor:   '#00C85A',
+    borderDownColor: '#E8002D',
+    wickUpColor:     '#00C85A',
+    wickDownColor:   '#E8002D',
+    priceFormat:     priceFmt,
+});
+
+const seriesTenkan = chart.addLineSeries({
+    color: '#FF8C00', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+const seriesKijun = chart.addLineSeries({
+    color: '#228B22', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+// Cloud actuel (SSA/SSB calculé il y a 26 bougies, affiché maintenant)
+const seriesSSA = chart.addLineSeries({
+    color: 'rgba(0,200,90,0.7)', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+const seriesSSB = chart.addLineSeries({
+    color: 'rgba(232,0,45,0.7)', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+// Cloud futur (+26 bougies — projection en avant)
+const seriesSSA26 = chart.addLineSeries({
+    color: 'rgba(0,200,90,0.4)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+const seriesSSB26 = chart.addLineSeries({
+    color: 'rgba(232,0,45,0.4)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+});
+const seriesChikou = chart.addLineSeries({
+    color: '#FFFFFF', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+    lineStyle: 2,
+});
+
+// ── OHLC legend ──────────────────────────────────────────────────────────────
+const ohlcEl = document.getElementById('ohlc');
+let priceDec = 5;   // décimales prix (mis à jour si indices)
+
+function updateOhlc(param) {
+    if (!param || !param.time || !param.seriesPrices) {
+        ohlcEl.innerHTML = '';
+        return;
+    }
+    const bar = param.seriesPrices.get(candleSeries);
+    if (!bar || bar.open === undefined) { ohlcEl.innerHTML = ''; return; }
+    const cls = bar.close >= bar.open ? 'up' : 'down';
+    ohlcEl.innerHTML =
+        `<span class="lbl">O</span><span class="${cls}">${bar.open.toFixed(priceDec)}</span>` +
+        `<span class="lbl">H</span><span class="${cls}">${bar.high.toFixed(priceDec)}</span>` +
+        `<span class="lbl">L</span><span class="${cls}">${bar.low.toFixed(priceDec)}</span>` +
+        `<span class="lbl">C</span><span class="${cls}">${bar.close.toFixed(priceDec)}</span>`;
+}
+
+// ── Données nuage ─────────────────────────────────────────────────────────────
+let cloudCurrent = [];
+let cloudFuture  = [];
+
+// ── Conditions par bougie (pour tooltip hover) ────────────────────────────────
+// time → { long: [{l, p}...], short: [{l, p}...] }
+// Taille limitée à 2000 bougies pour éviter les fuites mémoire
+const condMap    = new Map();
+const MAX_COND   = 2000;
+
+
+const tooltipEl  = document.getElementById('tooltip');
+
+// ── Dessin du nuage (canvas overlay) ─────────────────────────────────────────
+// cloudCurrent et cloudFuture sont dessinés SÉPARÉMENT — plus de fusion qui crée des trous.
+function drawCloudPart(pts) {
+    for (let i = 0; i < pts.length - 1; i++) {
+        const p1 = pts[i], p2 = pts[i + 1];
+        const x1 = chart.timeScale().timeToCoordinate(p1.time);
+        const x2 = chart.timeScale().timeToCoordinate(p2.time);
+        if (x1 === null || x2 === null) continue;
+        const y1A = candleSeries.priceToCoordinate(p1.senkouA);
+        const y1B = candleSeries.priceToCoordinate(p1.senkouB);
+        const y2A = candleSeries.priceToCoordinate(p2.senkouA);
+        const y2B = candleSeries.priceToCoordinate(p2.senkouB);
+        if (y1A === null || y1B === null || y2A === null || y2B === null) continue;
+        const midA = (p1.senkouA + p2.senkouA) / 2;
+        const midB = (p1.senkouB + p2.senkouB) / 2;
+        cloudCtx.fillStyle = midA >= midB ? 'rgba(0,200,90,0.18)' : 'rgba(232,0,45,0.18)';
+        cloudCtx.beginPath();
+        cloudCtx.moveTo(x1, y1A);
+        cloudCtx.lineTo(x2, y2A);
+        cloudCtx.lineTo(x2, y2B);
+        cloudCtx.lineTo(x1, y1B);
+        cloudCtx.closePath();
+        cloudCtx.fill();
+    }
+}
+
+function drawCloud() {
+    const W = chartEl.clientWidth;
+    const H = chartEl.clientHeight;
+    cloudEl.width  = W;
+    cloudEl.height = H;
+    drawCloudPart(cloudCurrent);
+    drawCloudPart(cloudFuture);
+}
+
+// ── Tooltip conditions ────────────────────────────────────────────────────────
+function updateTooltip(param) {
+    if (!param || !param.time || !param.point) {
+        tooltipEl.style.display = 'none';
+        return;
+    }
+
+    const cond = condMap.get(param.time);
+    if (!cond) {
+        tooltipEl.style.display = 'none';
+        return;
+    }
+
+    const allLongPassed  = cond.long. every(c => c.p);
+    const allShortPassed = cond.short.every(c => c.p);
+
+    function renderRows(arr) {
+        return arr.map(c =>
+            `<div class="tt-row ${c.p ? 'pass' : 'fail'}">` +
+            `<span class="ic">${c.p ? '✓' : '✗'}</span>${c.l}</div>`
+        ).join('');
+    }
+
+    let html = '';
+
+    if (cond.long.length > 0) {
+        const badge = allLongPassed ? ' <span style="color:#00C85A">▲ SIGNAL</span>' : '';
+        html += `<div class="tt-dir">LONG${badge}</div>${renderRows(cond.long)}`;
+    }
+    if (cond.short.length > 0) {
+        const badge = allShortPassed ? ' <span style="color:#E8002D">▼ SIGNAL</span>' : '';
+        html += `<div class="tt-dir">SHORT${badge}</div>${renderRows(cond.short)}`;
+    }
+
+    if (!html) { tooltipEl.style.display = 'none'; return; }
+
+    tooltipEl.innerHTML = html;
+    tooltipEl.style.display = 'block';
+
+    // Positionner près du curseur sans sortir de l'écran
+    const W = chartEl.clientWidth;
+    const H = chartEl.clientHeight;
+    let x = param.point.x + 16;
+    let y = param.point.y + 16;
+    tooltipEl.style.left = x + 'px';
+    tooltipEl.style.top  = y + 'px';
+    const tw = tooltipEl.offsetWidth;
+    const th = tooltipEl.offsetHeight;
+    if (x + tw > W - 8) x = param.point.x - tw - 16;
+    if (y + th > H - 8) y = param.point.y - th - 16;
+    tooltipEl.style.left = Math.max(8, x) + 'px';
+    tooltipEl.style.top  = Math.max(8, y) + 'px';
+}
+
+// ── Abonnements redraw nuage + tooltip ───────────────────────────────────────
+chart.timeScale().subscribeVisibleTimeRangeChange(drawCloud);
+
+// Crosshair move : redessine le nuage, OHLC legend ET tooltip
+chart.subscribeCrosshairMove(param => {
+    drawCloud();
+    updateOhlc(param);
+    updateTooltip(param);
+});
+
+// ── Markers ───────────────────────────────────────────────────────────────────
+let markers = [];
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetChart() {
+    markers         = [];
+    cloudCurrent    = [];
+    cloudFuture     = [];
+    firstCandleTime = null;
+    condMap.clear();
+    tooltipEl.style.display = 'none';
+    cloudCtx.clearRect(0, 0, cloudEl.width, cloudEl.height);
+    candleSeries.setData([]);
+    candleSeries.setMarkers([]);
+    seriesTenkan.setData([]);
+    seriesKijun.setData([]);
+    seriesSSA.setData([]);
+    seriesSSB.setData([]);
+    seriesSSA26.setData([]);
+    seriesSSB26.setData([]);
+    seriesChikou.setData([]);
+}
+
+// ── Messages C# → chart ───────────────────────────────────────────────────────
+function handleMsg(msg) {
+    switch (msg.type) {
+
+        case 'reset':
+            resetChart();
+            break;
+
+        // Redessine le nuage après un flush de candles/indicateurs
+        case 'redrawCloud':
+            drawCloud();
+            break;
+
+        // Scroll vers la dernière bougie (replay actif uniquement)
+        case 'scroll':
+            chart.timeScale().scrollToRealTime();
+            break;
+
+        default:
+            handleMsgInner(msg);
+            break;
+    }
+}
+
+// Traitement d'un message individuel (sans scroll ni redraw cloud — fait par le caller)
+function handleMsgInner(msg) {
+    switch (msg.type) {
+
+        case 'reset':
+            resetChart();
+            break;
+
+        case 'candle': {
+            const d = msg.data;
+            if (firstCandleTime === null) firstCandleTime = d.time;
+            // Log JS reçu — visible dans DevTools Console (F12) ET console WebView2
+            const dir = d.close >= d.open ? 'UP' : 'DN';
+            console.log(`CHART-CANDLE | chartUnix=${d.time} | O=${d.open.toFixed(5)} H=${d.high.toFixed(5)} L=${d.low.toFixed(5)} C=${d.close.toFixed(5)} | ${dir}`);
+            candleSeries.update({ time: d.time, open: d.open, high: d.high, low: d.low, close: d.close });
+            break;
+        }
+
+        case 'indicator': {
+            const d = msg.data;
+
+            if (d.tenkan > 0) seriesTenkan.update({ time: d.time, value: d.tenkan });
+            if (d.kijun  > 0) seriesKijun.update({  time: d.time, value: d.kijun  });
+
+            if (d.chikou > 0 && d.chikouTime > 0)
+                seriesChikou.update({ time: d.chikouTime, value: d.chikou });
+
+            if (d.senkouA > 0 && d.senkouB > 0) {
+                seriesSSA.update({ time: d.time, value: d.senkouA });
+                seriesSSB.update({ time: d.time, value: d.senkouB });
+                cloudCurrent.push({ time: d.time, senkouA: d.senkouA, senkouB: d.senkouB });
+            }
+
+            if (d.senkouA26 > 0 && d.senkouB26 > 0 && d.futureTime > 0) {
+                seriesSSA26.update({ time: d.futureTime, value: d.senkouA26 });
+                seriesSSB26.update({ time: d.futureTime, value: d.senkouB26 });
+                cloudFuture.push({ time: d.futureTime, senkouA: d.senkouA26, senkouB: d.senkouB26 });
+            }
+            // drawCloud déclenché par le message 'redrawCloud' après le flush
+            break;
+        }
+
+        case 'marker': {
+            const d = msg.data;
+            markers.push({
+                time:     d.time,
+                position: d.side === 'buy' ? 'belowBar' : 'aboveBar',
+                color:    d.side === 'buy' ? '#00C85A'  : '#E8002D',
+                shape:    d.action === 'entry'
+                    ? (d.side === 'buy' ? 'arrowUp' : 'arrowDown')
+                    : 'circle',
+                text: d.text || '',
+            });
+            markers.sort((a, b) => a.time - b.time);
+            candleSeries.setMarkers(markers);
+            break;
+        }
+
+        case 'conditions': {
+            const d = msg.data;
+            if (condMap.size >= MAX_COND)
+                condMap.delete(condMap.keys().next().value);
+            condMap.set(d.time, { long: d.long, short: d.short });
+            break;
+        }
+
+        case 'historyset': {
+            // Charge toute l'histoire en une seule fois via setData() — aucune animation
+            cloudCurrent = msg.cloudCurrent || [];
+            cloudFuture  = msg.cloudFuture  || [];
+            candleSeries.setData(msg.candles      || []);
+            seriesTenkan.setData(msg.tenkan       || []);
+            seriesKijun.setData( msg.kijun        || []);
+            seriesSSA.setData(   msg.ssa          || []);
+            seriesSSB.setData(   msg.ssb          || []);
+            seriesSSA26.setData( msg.ssa26        || []);
+            seriesSSB26.setData( msg.ssb26        || []);
+            seriesChikou.setData(msg.chikou       || []);
+            condMap.clear();
+            for (const c of (msg.conditions || [])) {
+                condMap.set(c.time, { long: c.long, short: c.short });
+            }
+            drawCloud();
+            break;
+        }
+
+        case 'fit':
+            chart.timeScale().fitContent();
+            break;
+    }
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+    const W = chartEl.clientWidth;
+    const H = chartEl.clientHeight;
+    chart.applyOptions({ width: W, height: H });
+    // requestAnimationFrame assure que le chart a fini son reflow avant de redessiner
+    requestAnimationFrame(drawCloud);
+});
+
+// ── WebView2 ──────────────────────────────────────────────────────────────────
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', event => {
+        try { handleMsg(JSON.parse(event.data)); }
+        catch (e) { console.error('chart msg error:', e); }
+    });
+}
+</script>
+</body>
+</html>

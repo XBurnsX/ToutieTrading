@@ -8,7 +8,28 @@
       "Bash(dotnet add:*)",
       "Bash(dotnet build:*)",
       "Bash(rm -f ToutieTrader.Data/Class1.cs)",
-      "Bash(mkdir -p ToutieTrader.Core/Models ToutieTrader.Core/Utils)"
+      "Bash(mkdir -p ToutieTrader.Core/Models ToutieTrader.Core/Utils)",
+      "Bash(grep -v \"^$\")",
+      "Bash(dotnet run:*)",
+      "Bash(powershell -Command \"\\(Get-Content 'C:\\\\Users\\\\XBurnsX\\\\ToutieTrading\\\\ToutieTrader.UI\\\\App.xaml' -Raw\\) -replace '\\(?s\\)<!--DELETEME.*?DELETEME-->', '' | Set-Content 'C:\\\\Users\\\\XBurnsX\\\\ToutieTrading\\\\ToutieTrader.UI\\\\App.xaml' -NoNewline\")",
+      "Bash(xargs grep:*)",
+      "Bash(grep -E \"\\\\.cs$|^d\")",
+      "Bash(python3 -c ':*)",
+      "Bash(awk -F',' 'NR>1 && $1>=1704067200000 && $1<=1704153600000 {print; count++; if \\(count>=10\\) exit}' \"C:/Users/XBurnsX/ToutieTrader/artifacts/market_data/forex/EUR_USD_M1.csv\")",
+      "Bash(grep \"_D\\\\.csv$\")",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('mt5_service.py', encoding='utf-8'\\).read\\(\\)\\); print\\('[OK] mt5_service.py parsed'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('[OK] main.py parsed'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('models.py', encoding='utf-8'\\).read\\(\\)\\); print\\('[OK] models.py parsed'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\)\\) for f in ['mt5_service.py','main.py','models.py']]; print\\('[OK] all python files parsed'\\)\")",
+      "Bash(tasklist //FI \"IMAGENAME eq ToutieTrader.UI.exe\")",
+      "Bash(powershell -Command \"Get-Process ToutieTrader.UI -ErrorAction SilentlyContinue | Select-Object Id, ProcessName\")",
+      "Bash(python debug_candle_compare.py AUDCAD 2026-04-01 2026-04-15)",
+      "Bash(python python_bridge/debug_candle_compare.py AUDCAD 2026-04-01 2026-04-15)",
+      "Bash(python python_bridge/debug_candle_compare.py)",
+      "Bash(python debug_full_compare.py AUDCAD 2026-04-01 2026-04-07)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(python -W ignore -c ':*)"
     ]
   }
 }

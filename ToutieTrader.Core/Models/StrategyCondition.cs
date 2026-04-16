@@ -18,7 +18,16 @@ public sealed class StrategyCondition
     /// <summary>
     /// Lambda d'évaluation.
     /// Paramètres : (valeurs indicateurs, état tendance) → bool.
-    /// Bougie précédente = champ privé dans la Strategy si nécessaire.
+    /// Les champs PrevClose/PrevKijun/High26 etc. de IndicatorValues donnent accès
+    /// aux bougies précédentes sans nécessiter un état privé dans la Strategy.
     /// </summary>
     public Func<IndicatorValues, TrendState, bool> Expression { get; init; } = (_, _) => false;
+
+    /// <summary>
+    /// Direction à laquelle cette condition s'applique.
+    /// null = toutes directions | "BUY" = long seulement | "SELL" = short seulement.
+    /// Utilisé principalement dans ForceExitConditions et OptionalExitConditions
+    /// pour éviter qu'une condition de sortie BUY ne ferme une position SELL (et vice-versa).
+    /// </summary>
+    public string? ApplicableDirection { get; init; } = null;
 }

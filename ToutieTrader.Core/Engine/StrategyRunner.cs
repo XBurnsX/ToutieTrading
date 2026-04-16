@@ -228,7 +228,7 @@ public sealed class StrategyRunner
 
         // Calculer SL et TP via la règle déclarée dans la Strategy
         double sl = CalculateSl(strategy.StopLoss, direction, indicators, candle.Symbol, candle.Timeframe);
-        double tp = CalculateTp(strategy.TakeProfit, direction, candle.Close, sl);
+        double tp = CalculateTp(strategy.TakeProfit, direction, candle.Close, sl, indicators);
 
         return new TradeSignal
         {
@@ -260,11 +260,12 @@ public sealed class StrategyRunner
             StopLossType.Fixed      => direction == "BUY"
                                         ? iv.Close - rule.BufferPips * pipSize
                                         : iv.Close + rule.BufferPips * pipSize,
+            StopLossType.Custom     => rule.CustomCompute?.Invoke(iv, direction) ?? iv.Close,
             _ => iv.Close
         };
     }
 
-    private double CalculateTp(TakeProfitRule rule, string direction, double entryPrice, double sl)
+    private double CalculateTp(TakeProfitRule rule, string direction, double entryPrice, double sl, IndicatorValues iv)
     {
         double slDistance = Math.Abs(entryPrice - sl);
 
@@ -273,10 +274,10 @@ public sealed class StrategyRunner
             TakeProfitType.RiskRatio => direction == "BUY"
                 ? entryPrice + slDistance * rule.Ratio
                 : entryPrice - slDistance * rule.Ratio,
-            TakeProfitType.Fixed =>
-                direction == "BUY"
+            TakeProfitType.Fixed     => direction == "BUY"
                 ? entryPrice + rule.Ratio   // Ratio = pips dans ce cas
                 : entryPrice - rule.Ratio,
+            TakeProfitType.Custom    => rule.CustomCompute?.Invoke(iv, direction, entryPrice, sl) ?? entryPrice,
             _ => entryPrice
         };
     }

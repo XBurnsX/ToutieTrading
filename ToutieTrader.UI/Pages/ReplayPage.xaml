@@ -1,0 +1,337 @@
+<Page x:Class="ToutieTrader.UI.Pages.ReplayPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+      xmlns:ctrl="clr-namespace:ToutieTrader.UI.Controls"
+      Background="{StaticResource BgBrush}"
+      Title="Replay">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- barre contrôles -->
+            <RowDefinition Height="*"/>     <!-- chart WebView2 -->
+            <RowDefinition Height="220"/>   <!-- panneau résultats -->
+        </Grid.RowDefinitions>
+
+        <!-- ══ BARRE DE CONTRÔLE ═══════════════════════════════════════════════ -->
+        <Border Grid.Row="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>  <!-- boutons play -->
+                    <ColumnDefinition Width="Auto"/>  <!-- sep -->
+                    <ColumnDefinition Width="Auto"/>  <!-- dates + capital -->
+                    <ColumnDefinition Width="Auto"/>  <!-- sep -->
+                    <ColumnDefinition Width="Auto"/>  <!-- vitesse -->
+                    <ColumnDefinition Width="Auto"/>  <!-- sep -->
+                    <ColumnDefinition Width="Auto"/>  <!-- symbole + TF -->
+                    <ColumnDefinition Width="*"/>     <!-- spacer -->
+                    <ColumnDefinition Width="Auto"/>  <!-- progression -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Boutons Start / Pause / Stop / Reset -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button x:Name="BtnStart"
+                            Content="▶ Start"
+                            Style="{StaticResource BtnPrimary}"
+                            Margin="0,0,6,0"
+                            Click="BtnStart_Click"/>
+                    <Button x:Name="BtnPause"
+                            Content="⏸ Pause"
+                            Style="{StaticResource BtnSecondary}"
+                            Margin="0,0,6,0"
+                            Visibility="Collapsed"
+                            Click="BtnPause_Click"/>
+                    <Button x:Name="BtnStop"
+                            Content="■ Stop"
+                            Style="{StaticResource BtnSecondary}"
+                            Margin="0,0,6,0"
+                            IsEnabled="False"
+                            Click="BtnStop_Click"/>
+                    <Button x:Name="BtnReset"
+                            Content="↺ Reset"
+                            Style="{StaticResource BtnSecondary}"
+                            Click="BtnReset_Click"/>
+                </StackPanel>
+
+                <Rectangle Grid.Column="1" Width="1" Height="24"
+                           Fill="{StaticResource BorderBrush}" Margin="12,0"/>
+
+                <!-- Dates + Capital -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="De" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11"/>
+                    <ctrl:DarkDatePicker x:Name="DpFrom" Width="130"/>
+                    <TextBlock Text="À" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="10,0,6,0" FontSize="11"/>
+                    <ctrl:DarkDatePicker x:Name="DpTo" Width="130"/>
+                    <TextBlock Text="Capital $" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="14,0,6,0" FontSize="11"/>
+                    <TextBox x:Name="TxtCapital" Width="90" Text="10000" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <Rectangle Grid.Column="3" Width="1" Height="24"
+                           Fill="{StaticResource BorderBrush}" Margin="12,0"/>
+
+                <!-- Vitesse -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Vitesse" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11"/>
+                    <RadioButton x:Name="SpeedX1"  Content="x1" GroupName="Speed"
+                                 IsChecked="True" Foreground="{StaticResource TextBrush}"
+                                 Margin="0,0,8,0" Checked="Speed_Checked" Tag="1"/>
+                    <RadioButton x:Name="SpeedX2"  Content="x2" GroupName="Speed"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Margin="0,0,8,0" Checked="Speed_Checked" Tag="2"/>
+                    <RadioButton x:Name="SpeedX4"  Content="x4" GroupName="Speed"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Margin="0,0,8,0" Checked="Speed_Checked" Tag="4"/>
+                    <RadioButton x:Name="SpeedX8"  Content="x8"  GroupName="Speed"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Margin="0,0,8,0" Checked="Speed_Checked" Tag="8"/>
+                    <RadioButton x:Name="SpeedX16" Content="x16" GroupName="Speed"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Margin="0,0,8,0" Checked="Speed_Checked" Tag="16"/>
+                    <RadioButton x:Name="SpeedX32" Content="x32" GroupName="Speed"
+                                 Foreground="{StaticResource TextBrush}"
+                                 Checked="Speed_Checked" Tag="32"/>
+                </StackPanel>
+
+                <Rectangle Grid.Column="5" Width="1" Height="24"
+                           Fill="{StaticResource BorderBrush}" Margin="12,0"/>
+
+                <!-- Symbole + Timeframe + Strategy -->
+                <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Symbole" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" FontSize="11"/>
+                    <ComboBox x:Name="CmbSymbol" Width="100" VerticalAlignment="Center"/>
+
+                    <TextBlock Text="TF" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="10,0,6,0" FontSize="11"/>
+                    <ComboBox x:Name="CmbTimeframe" Width="60" VerticalAlignment="Center">
+                        <ComboBoxItem Content="M1" IsSelected="True"/>
+                        <ComboBoxItem Content="M5"/>
+                        <ComboBoxItem Content="M15"/>
+                        <ComboBoxItem Content="H1"/>
+                        <ComboBoxItem Content="H4"/>
+                        <ComboBoxItem Content="D"/>
+                    </ComboBox>
+
+                    <TextBlock Text="Strategy" Foreground="{StaticResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="10,0,6,0" FontSize="11"/>
+                    <ComboBox x:Name="CmbStrategy" Width="160" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Barre de progression -->
+                <StackPanel Grid.Column="8" HorizontalAlignment="Right"
+                            VerticalAlignment="Center" Orientation="Horizontal">
+                    <TextBlock x:Name="TxtProgressDate"
+                               Text="—"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11" VerticalAlignment="Center"
+                               Margin="0,0,10,0"/>
+                    <ProgressBar x:Name="ProgressBar"
+                                 Width="160" Height="4"
+                                 Minimum="0" Maximum="100" Value="0"
+                                 Foreground="{StaticResource AccentBrush}"
+                                 Background="{StaticResource BorderBrush}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══ CHART WebView2 ══════════════════════════════════════════════════ -->
+        <wv2:WebView2 x:Name="Chart"
+                      Grid.Row="1"/>
+
+        <!-- ══ Overlay de chargement (MT5 fetch + DuckDB load) ═════════════════ -->
+        <Border x:Name="LoadingOverlay"
+                Grid.Row="1"
+                Background="#E6151A21"
+                Visibility="Collapsed"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="⏳"
+                           FontSize="48"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,16"/>
+                <TextBlock x:Name="LoadingText"
+                           Text="Chargement…"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource TextBrush}"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           MaxWidth="600"/>
+                <TextBlock Text="La première run d'une date range télécharge depuis MT5 — ça peut prendre plusieurs minutes."
+                           FontSize="11"
+                           Foreground="{StaticResource MutedBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,12,0,0"
+                           MaxWidth="600"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ══ HUD Trends (overlay top-right du chart) ═════════════════════════ -->
+        <Border Grid.Row="1"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,12,14,0"
+                Background="#CC151A21"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="10,8"
+                IsHitTestVisible="False">
+            <StackPanel>
+                <TextBlock Text="TRENDS" FontSize="9"
+                           Foreground="{StaticResource MutedBrush}"
+                           Margin="0,0,0,6" FontWeight="SemiBold"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="32"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="M1"  FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="HudM1"  Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="M5"  FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="HudM5"  Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="M15" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="HudM15" Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="H1"  FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="HudH1"  Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="H4"  FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="4" Grid.Column="1" x:Name="HudH4"  Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="D"   FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="HudD1"  Text="—"
+                               FontSize="10" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="4,1"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ══ PANNEAU RÉSULTATS ═══════════════════════════════════════════════ -->
+        <Border Grid.Row="2"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="16,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Stats rapides -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Top">
+                    <StackPanel Margin="0,0,28,0">
+                        <TextBlock Text="CAPITAL" FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="TxtCapitalCurrent" Text="—"
+                                   FontSize="18" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,28,0">
+                        <TextBlock Text="WINS" FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="TxtWins" Text="0"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   Foreground="{StaticResource SuccessBrush}"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,28,0">
+                        <TextBlock Text="LOSSES" FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="TxtLosses" Text="0"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DangerBrush}"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,24,0">
+                        <TextBlock Text="DRAWDOWN" FontSize="10"
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                        <TextBlock x:Name="TxtDrawdown" Text="0 %"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   Foreground="{StaticResource DangerBrush}"/>
+                    </StackPanel>
+
+                    <!-- Séparateur vertical -->
+                    <Rectangle Width="1" Height="60"
+                               Fill="{StaticResource BorderBrush}" Margin="0,0,16,0"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Liste des trades du replay -->
+                <DataGrid x:Name="GridReplayTrades"
+                          Grid.Column="1"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          Background="Transparent"
+                          RowBackground="{StaticResource SurfaceBrush}"
+                          AlternatingRowBackground="{StaticResource Surface2Brush}"
+                          Foreground="{StaticResource TextBrush}"
+                          BorderThickness="0"
+                          GridLinesVisibility="Horizontal"
+                          HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                          HeadersVisibility="Column"
+                          FontSize="11"
+                          MouseDoubleClick="GridReplayTrades_MouseDoubleClick">
+                    <DataGrid.ColumnHeaderStyle>
+                        <Style TargetType="DataGridColumnHeader">
+                            <Setter Property="Background"      Value="{StaticResource Surface2Brush}"/>
+                            <Setter Property="Foreground"      Value="{StaticResource MutedBrush}"/>
+                            <Setter Property="FontSize"        Value="10"/>
+                            <Setter Property="Padding"         Value="8,6"/>
+                            <Setter Property="BorderBrush"     Value="{StaticResource BorderBrush}"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        </Style>
+                    </DataGrid.ColumnHeaderStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Dir"    Binding="{Binding Direction}"                                    Width="40"/>
+                        <DataGridTextColumn Header="Entrée" Binding="{Binding EntryPrice, StringFormat=N5}"                  Width="80"/>
+                        <DataGridTextColumn Header="Sortie" Binding="{Binding ExitPrice,  StringFormat=N5}"                  Width="80"/>
+                        <DataGridTextColumn Header="SL"     Binding="{Binding Sl,         StringFormat=N5}"                  Width="80"/>
+                        <DataGridTextColumn Header="TP"     Binding="{Binding Tp,         StringFormat=N5}"                  Width="80"/>
+                        <DataGridTextColumn Header="P/L $"  Binding="{Binding ProfitLoss, StringFormat=N2}"                  Width="70"/>
+                        <DataGridTextColumn Header="Raison" Binding="{Binding ExitReason}"                                   Width="100"/>
+                        <DataGridTextColumn Header="Date entrée" Binding="{Binding EntryTime, StringFormat=\{0:MM-dd HH:mm\}}" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

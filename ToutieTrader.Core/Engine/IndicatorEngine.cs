@@ -8,8 +8,9 @@ namespace ToutieTrader.Core.Engine;
 /// Calcul incrémental — jamais recalculer tout l'historique à chaque bougie.
 /// La Strategy lit, ne recalcule jamais.
 ///
-/// Indicateurs : Ichimoku complet, MACD, EMA50, EMA200.
+/// Indicateurs : Ichimoku complet, MACD, EMA50, EMA200, ATR14, Pivots journaliers.
 /// Minimum 52 bougies pour Ichimoku. EMA commence dès la 1ère bougie (imprécis < 200, acceptable).
+/// Champs Previous* et *26 permettent aux Strategies de détecter cassures et Chikou libre.
 /// </summary>
 public sealed class IndicatorEngine
 {
@@ -49,13 +50,26 @@ public sealed class IndicatorEngine
 
     private sealed class IndicatorState
     {
-        private const int BufferSize  = 350;  // assez pour 52+26 Ichimoku + EMA200 warm-up
-        private const int MinCandles  = 52;   // minimum pour Ichimoku complet
+        private const int BufferSize = 350;  // assez pour 52+26 Ichimoku + EMA200 warm-up
+        private const int MinCandles = 52;   // minimum pour Ichimoku complet
 
         private readonly Queue<Candle> _buf = new();
 
-        // EMA state (null = pas encore initialisé)
+        // ── EMA state (null = pas encore initialisé) ──────────────────────────
         private double? _ema12, _ema26, _ema50, _ema200, _signal9;
+
+        // ── ATR(14) ───────────────────────────────────────────────────────────
+        private double? _atr14;
+        private double? _prevCandleClose;
+
+        // ── Points Pivots journaliers ─────────────────────────────────────────
+        private double _dayHigh  = 0;
+        private double _dayLow   = double.MaxValue;
+        private double _dayClose = 0;
+        private int    _currentDay = -1;   // DayOfYear*10000+Year, -1 = pas encore init
+
+        // Pivots du JOUR PRÉCÉDENT (utilisés pendant la session courante)
+        private double _pivotPP = 0, _pivotR1 = 0, _pivotR2 = 0, _pivotS1 = 0, _pivotS2 = 0;
 
         public IndicatorValues? Current  { get; private set; }
         public IndicatorValues? Previous { get; private set; }
@@ -68,7 +82,16 @@ public sealed class IndicatorEngine
             var arr = _buf.ToArray();
             int n   = arr.Length;
 
-            // Mise à jour EMA incrémentale (toujours, même avant MinCandles)
+            // ── Mise à jour ATR incrémentale ──────────────────────────────────
+            double tr = _prevCandleClose.HasValue
+                ? Math.Max(candle.High - candle.Low,
+                  Math.Max(Math.Abs(candle.High - _prevCandleClose.Value),
+                           Math.Abs(candle.Low  - _prevCandleClose.Value)))
+                : candle.High - candle.Low;
+            UpdateEma(ref _atr14, tr, 14);
+            _prevCandleClose = candle.Close;
+
+            // ── Mise à jour EMA incrémentale ──────────────────────────────────
             double close = candle.Close;
             UpdateEma(ref _ema12,  close, 12);
             UpdateEma(ref _ema26,  close, 26);
@@ -78,13 +101,56 @@ public sealed class IndicatorEngine
             double macdLine = (_ema12 ?? close) - (_ema26 ?? close);
             UpdateEma(ref _signal9, macdLine, 9);
 
+            // ── Pivots journaliers ────────────────────────────────────────────
+            UpdateDailyPivots(candle);
+
             if (n < MinCandles) return;  // pas assez de bougies pour Ichimoku
 
             Previous = Current;
-            Current  = Calculate(arr, n, macdLine);
+            Current  = Calculate(arr, n, macdLine, candle);
         }
 
-        private IndicatorValues Calculate(Candle[] arr, int n, double macdLine)
+        // ── Pivots : roll au changement de jour ───────────────────────────────
+
+        private void UpdateDailyPivots(Candle candle)
+        {
+            int day = candle.Time.Year * 10000 + candle.Time.DayOfYear;
+
+            if (_currentDay == -1)
+            {
+                // Premier candle : initialiser
+                _currentDay = day;
+                _dayHigh    = candle.High;
+                _dayLow     = candle.Low;
+            }
+            else if (day != _currentDay)
+            {
+                // Nouveau jour : calculer pivots du jour précédent
+                if (_dayLow < _dayHigh)  // sécurité
+                {
+                    _pivotPP = (_dayHigh + _dayLow + _dayClose) / 3.0;
+                    _pivotR1 = 2.0 * _pivotPP - _dayLow;
+                    _pivotR2 = _pivotPP + (_dayHigh - _dayLow);
+                    _pivotS1 = 2.0 * _pivotPP - _dayHigh;
+                    _pivotS2 = _pivotPP - (_dayHigh - _dayLow);
+                }
+
+                _currentDay = day;
+                _dayHigh    = candle.High;
+                _dayLow     = candle.Low;
+            }
+            else
+            {
+                if (candle.High > _dayHigh) _dayHigh = candle.High;
+                if (candle.Low  < _dayLow)  _dayLow  = candle.Low;
+            }
+
+            _dayClose = candle.Close;
+        }
+
+        // ── Calcul principal ──────────────────────────────────────────────────
+
+        private IndicatorValues Calculate(Candle[] arr, int n, double macdLine, Candle currentCandle)
         {
             int last = n - 1;
 
@@ -95,12 +161,13 @@ public sealed class IndicatorEngine
 
             // Cloud actuel = calculé il y a 26 bougies, affiché maintenant
             double senkouA = 0, senkouB = 0;
+            double tenkan26 = 0, kijun26 = 0;
             if (n >= 26 + 9)
             {
                 int t26 = n - 26;
-                double tenkan26 = Midpoint(arr, t26 - 9,  t26);
-                double kijun26  = Midpoint(arr, t26 - 26, t26);
-                senkouA = (tenkan26 + kijun26) / 2.0;
+                tenkan26 = Midpoint(arr, t26 - 9,  t26);
+                kijun26  = Midpoint(arr, t26 - 26, t26);
+                senkouA  = (tenkan26 + kijun26) / 2.0;
             }
             if (n >= 26 + 52)
             {
@@ -114,28 +181,76 @@ public sealed class IndicatorEngine
 
             // Chikou = close actuel (tracé 26 bougies en arrière sur le chart)
             double chikou = arr[last].Close;
+            // Timestamp réel de la bougie à -26 (n >= 52 garanti ici, arr[n-27] est toujours valide)
+            var chikouCandleTime = arr[n - 27].Time;
+
+            // ── Historique -26 pour Chikou libre ──────────────────────────────
+            // Bar à -26 = arr[n-27] (0-indexed, n-1 = bar actuel)
+            double high26 = 0, low26 = 0;
+            if (n >= 27)
+            {
+                high26 = arr[n - 27].High;
+                low26  = arr[n - 27].Low;
+            }
+
+            // ── Valeurs bougie précédente ─────────────────────────────────────
+            double prevClose = 0, prevOpen = 0, prevHigh = 0, prevLow = 0;
+            double prevKijun = 0, prevTenkan = 0;
+            if (n >= 2)
+            {
+                prevClose  = arr[n - 2].Close;
+                prevOpen   = arr[n - 2].Open;
+                prevHigh   = arr[n - 2].High;
+                prevLow    = arr[n - 2].Low;
+                // Tenkan/Kijun de la bougie précédente
+                prevTenkan = Midpoint(arr, n - 10, n - 1);
+                prevKijun  = Midpoint(arr, n - 27, n - 1);
+            }
 
             return new IndicatorValues
             {
+                CandleTime = currentCandle.Time,
+
                 Tenkan    = tenkan,
                 Kijun     = kijun,
                 SenkouA   = senkouA,
                 SenkouB   = senkouB,
                 SenkouA26 = senkouA26,
                 SenkouB26 = senkouB26,
-                Chikou    = chikou,
+                Chikou           = chikou,
+                ChikouCandleTime = chikouCandleTime,
 
                 MacdLine   = macdLine,
-                SignalLine  = _signal9  ?? 0,
+                SignalLine  = _signal9 ?? 0,
                 Histogram   = macdLine - (_signal9 ?? 0),
 
                 Ema50  = _ema50  ?? 0,
                 Ema200 = _ema200 ?? 0,
 
+                Atr14 = _atr14 ?? 0,
+
                 Close = arr[last].Close,
                 Open  = arr[last].Open,
                 High  = arr[last].High,
                 Low   = arr[last].Low,
+
+                PrevClose  = prevClose,
+                PrevOpen   = prevOpen,
+                PrevHigh   = prevHigh,
+                PrevLow    = prevLow,
+                PrevKijun  = prevKijun,
+                PrevTenkan = prevTenkan,
+
+                High26   = high26,
+                Low26    = low26,
+                Kijun26  = kijun26,
+                Tenkan26 = tenkan26,
+
+                PivotPP = _pivotPP,
+                PivotR1 = _pivotR1,
+                PivotR2 = _pivotR2,
+                PivotS1 = _pivotS1,
+                PivotS2 = _pivotS2,
             };
         }
 

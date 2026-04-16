@@ -71,8 +71,25 @@ public interface IStrategy
 
     /// <summary>
     /// Options configurables depuis la page Strategy de l'UI.
-    /// Types valides des valeurs : bool | decimal | int.
-    /// Rendues dynamiquement — pas de hardcode dans l'UI.
+    /// Types valides : bool | decimal | int | string.
+    /// Si string → déclarer les options valides dans SettingChoices pour obtenir un dropdown.
+    /// Settings["RiskPercent"] surcharge RiskPercent si présent.
     /// </summary>
     Dictionary<string, object> Settings { get; }
+
+    /// <summary>
+    /// Options valides pour les settings de type string.
+    /// Clé = nom du setting, valeur = tableau des options.
+    /// Si présent → ComboBox dans l'UI. Si absent → TextBox.
+    /// Implémentation par défaut = aucun dropdown.
+    /// </summary>
+    Dictionary<string, string[]> SettingChoices => new();
+
+    /// <summary>
+    /// Regroupe les settings en sections dans la page Strategy.
+    /// Clé = titre de section, valeur = clés des settings dans l'ordre voulu.
+    /// Les settings non listés ici apparaissent sans section à la fin.
+    /// Implémentation par défaut = affichage plat sans sections.
+    /// </summary>
+    Dictionary<string, string[]> SettingSections => new();
 }

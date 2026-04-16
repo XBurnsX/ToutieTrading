@@ -2,3 +2,5 @@ fastapi
 uvicorn
 MetaTrader5
 pytz
+duckdb
+pandas

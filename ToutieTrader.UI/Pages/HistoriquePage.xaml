@@ -1,0 +1,60 @@
+<Page x:Class="ToutieTrader.UI.Pages.HistoriquePage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{StaticResource BgBrush}"
+      Title="Historique">
+
+    <Grid Margin="32,28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="HISTORIQUE"
+                   FontSize="11" FontWeight="SemiBold"
+                   Foreground="{StaticResource MutedBrush}"
+                   Margin="0,0,0,20"/>
+
+        <!-- Tableau des trades live (DuckDB #2) -->
+        <Border Grid.Row="1"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1" CornerRadius="2">
+            <DataGrid x:Name="GridTrades"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      Background="Transparent"
+                      RowBackground="{StaticResource SurfaceBrush}"
+                      AlternatingRowBackground="{StaticResource Surface2Brush}"
+                      Foreground="{StaticResource TextBrush}"
+                      BorderThickness="0"
+                      GridLinesVisibility="Horizontal"
+                      HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                      HeadersVisibility="Column"
+                      FontSize="12"
+                      MouseDoubleClick="GridTrades_MouseDoubleClick">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background"   Value="{StaticResource Surface2Brush}"/>
+                        <Setter Property="Foreground"   Value="{StaticResource MutedBrush}"/>
+                        <Setter Property="FontSize"     Value="10"/>
+                        <Setter Property="Padding"      Value="10,8"/>
+                        <Setter Property="BorderBrush"  Value="{StaticResource BorderBrush}"/>
+                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Symbole"   Binding="{Binding Symbol}"     Width="80"/>
+                    <DataGridTextColumn Header="Direction" Binding="{Binding Direction}"   Width="70"/>
+                    <DataGridTextColumn Header="Entrée"    Binding="{Binding EntryPrice, StringFormat=N5}"  Width="90"/>
+                    <DataGridTextColumn Header="SL"        Binding="{Binding Sl, StringFormat=N5}"          Width="90"/>
+                    <DataGridTextColumn Header="TP"        Binding="{Binding Tp, StringFormat=N5}"          Width="90"/>
+                    <DataGridTextColumn Header="P/L"       Binding="{Binding ProfitLoss, StringFormat=N2}"  Width="80"/>
+                    <DataGridTextColumn Header="Raison"    Binding="{Binding ExitReason}"  Width="*"/>
+                    <DataGridTextColumn Header="Date entrée (Québec)" Binding="{Binding EntryTime, StringFormat=\{0:yyyy-MM-dd HH:mm\}}" Width="150"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+    </Grid>
+</Page>

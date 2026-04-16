@@ -137,6 +137,10 @@ public sealed class TradeManager
             // ── ForceExitConditions (UNE vraie = ferme) ───────────────────────
             foreach (var cond in strategy.ForceExitConditions)
             {
+                // Ignorer si la condition ne s'applique pas à la direction de ce trade
+                if (cond.ApplicableDirection != null && cond.ApplicableDirection != record.Direction)
+                    continue;
+
                 var condIndicators = _indicators.GetIndicators(candle.Symbol, cond.Timeframe) ?? indicators;
                 var condTrend      = _trend.GetTrend(candle.Symbol, cond.Timeframe) ?? trendState;
 
@@ -152,6 +156,10 @@ public sealed class TradeManager
             foreach (var cond in strategy.OptionalExitConditions)
             {
                 if (!IsOptionalExitEnabled(strategy, cond.Label)) continue;
+
+                // Ignorer si la condition ne s'applique pas à la direction de ce trade
+                if (cond.ApplicableDirection != null && cond.ApplicableDirection != record.Direction)
+                    continue;
 
                 var condIndicators = _indicators.GetIndicators(candle.Symbol, cond.Timeframe) ?? indicators;
                 var condTrend      = _trend.GetTrend(candle.Symbol, cond.Timeframe) ?? trendState;

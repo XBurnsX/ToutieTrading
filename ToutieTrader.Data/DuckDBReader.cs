@@ -166,13 +166,74 @@ public sealed class DuckDBReader
         return result;
     }
 
+    /// <summary>
+    /// Charge tous les TFs d'un symbole en une seule connexion DuckDB.
+    /// queries = liste de (timeframe, from, to) — from inclut déjà le warmup indicateurs.
+    /// </summary>
+    public Dictionary<string, List<Candle>> GetCandlesForSymbol(
+        string symbol,
+        IEnumerable<(string Tf, DateTimeOffset From, DateTimeOffset To)> queries)
+    {
+        using var con    = OpenRead();
+        var       result = new Dictionary<string, List<Candle>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (tf, from, to) in queries)
+        {
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = """
+                SELECT time, open, high, low, close, volume
+                FROM candles
+                WHERE symbol = $symbol
+                  AND timeframe = $timeframe
+                  AND time >= $from
+                  AND time <= $to
+                ORDER BY time
+                """;
+
+            cmd.Parameters.Add(new DuckDBParameter("symbol",    symbol));
+            cmd.Parameters.Add(new DuckDBParameter("timeframe", tf));
+            cmd.Parameters.Add(new DuckDBParameter("from",      from.UtcDateTime));
+            cmd.Parameters.Add(new DuckDBParameter("to",        to.UtcDateTime));
+
+            var candles = ReadCandles(cmd, symbol, tf);
+            if (candles.Count > 0) result[tf] = candles;
+        }
+
+        return result;
+    }
+
     // ─── Privé ────────────────────────────────────────────────────────────────
 
     private DuckDBConnection OpenRead()
     {
-        var con = new DuckDBConnection(_connectionString);
-        con.Open();
-        return con;
+        // Retry jusqu'à 20× (5s entre chaque) si la DB est verrouillée par le bridge Python.
+        // 20 × 5s = 100s de patience — suffisant même si ensure_candles_range prend ~3 minutes.
+        // Note : le vrai fix est HttpClient.Timeout = Infinite dans MT5ApiClient, ce qui
+        // garantit que Python a fermé sa connexion avant que LoadAllSymbolsAllTfsAsync démarre.
+        // Ce retry reste comme filet de sécurité.
+        const int MaxAttempts  = 20;
+        const int RetryDelayMs = 5_000;
+
+        for (int i = 0; i < MaxAttempts; i++)
+        {
+            try
+            {
+                var con = new DuckDBConnection(_connectionString);
+                con.Open();
+                return con;
+            }
+            catch (Exception ex) when (i < MaxAttempts - 1 &&
+                (ex.Message.Contains("used by another process") ||
+                 ex.Message.Contains("Cannot open file") ||
+                 ex.Message.Contains("lock")))
+            {
+                Thread.Sleep(RetryDelayMs);
+            }
+        }
+        // Dernière tentative — laisse l'exception remonter normalement
+        var last = new DuckDBConnection(_connectionString);
+        last.Open();
+        return last;
     }
 
     private static List<Candle> ReadCandles(DuckDBCommand cmd, string symbol, string timeframe)

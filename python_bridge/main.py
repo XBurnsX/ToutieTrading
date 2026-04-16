@@ -35,6 +35,9 @@ from models import (
     OrderResponse,
     CloseOrderRequest,
     CloseOrderResponse,
+    EnsureCandlesRangeRequest,
+    EnsureCandlesRangeResponse,
+    WatchlistSymbol,
 )
 
 
@@ -135,6 +138,51 @@ async def order(req: OrderRequest):
         return JSONResponse(status_code=422, content={"error": "Market closed"})
     except ValueError as e:
         return JSONResponse(status_code=422, content={"error": "Order rejected", "reason": str(e)})
+
+
+# ─── GET /watchlist ───────────────────────────────────────────────────────────
+
+@app.get("/watchlist", response_model=list[WatchlistSymbol])
+async def watchlist():
+    """
+    Retourne la watchlist MT5 (Market Watch) avec nom broker-natif + nom canonique.
+    Appelé par le C# au démarrage de ReplayPage pour peupler le dropdown symbole
+    sans qu'aucune donnée ne soit encore présente dans candles.db.
+    Timeout C# : 5s.
+    """
+    try:
+        return mt5_service.get_watchlist()
+    except RuntimeError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+
+
+# ─── POST /ensure_candles_range ───────────────────────────────────────────────
+
+@app.post("/ensure_candles_range", response_model=EnsureCandlesRangeResponse)
+async def ensure_candles_range(req: EnsureCandlesRangeRequest):
+    """
+    Lazy fetch MT5 → DuckDB.
+
+    Pour chaque symbol dans la watchlist MT5 (Market Watch) × chaque TF demandé :
+      - Check coverage existante dans candles.db
+      - Télécharge seulement les ranges manquantes depuis MT5
+      - INSERT les nouvelles bougies dans candles.db
+
+    Appelé par ReplayService.StartAsync() juste avant de charger les données.
+    Premier run d'une date range = lent (fetch MT5). Runs suivants = instant (cache hit).
+
+    Timeout C# : 600s (peut être très long la première fois).
+    """
+    try:
+        return mt5_service.ensure_candles_range(
+            from_iso=req.from_iso,
+            to_iso=req.to_iso,
+            timeframes=req.timeframes,
+        )
+    except RuntimeError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
 
 
 # ─── POST /close_order ────────────────────────────────────────────────────────

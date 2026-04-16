@@ -1,0 +1,40 @@
+# Build outputs
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+**/packages/
+!**/packages/build/
+
+# Logs & data (générés au runtime)
+logs/
+data/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+python_bridge/__pycache__/
+
+# Secrets / clés
+*.env
+.env*
+secrets.*

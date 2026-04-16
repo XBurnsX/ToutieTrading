@@ -30,7 +30,10 @@ public sealed class MT5ApiClient : IDisposable
     public MT5ApiClient(string baseUrl = "http://127.0.0.1:8000")
     {
         _baseUrl = baseUrl.TrimEnd('/');
-        _http    = new HttpClient();
+        // Timeout = Infinite : chaque méthode gère son propre CancellationToken.
+        // Sans ça, le HttpClient.Timeout de 100s (défaut) écrase le CancelAfter(600s)
+        // de EnsureCandlesRangeAsync, causant un TaskCanceledException prématuré.
+        _http    = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
     }
 
     // ─── Polling ──────────────────────────────────────────────────────────────
@@ -129,6 +132,110 @@ public sealed class MT5ApiClient : IDisposable
             url, _jsonOpts, cts.Token).ConfigureAwait(false) ?? [];
 
         return dtos.Select(d => MapCandle(d, symbol, timeframe)).ToList();
+    }
+
+    // ─── GET /watchlist ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Retourne la watchlist MT5 (Market Watch) avec nom broker + canonique.
+    /// Utilisé pour peupler le dropdown symbole de ReplayPage sans toucher la DB.
+    /// Retourne une liste vide si MT5 indisponible (ne throw pas).
+    /// </summary>
+    public async Task<List<WatchlistEntry>> GetWatchlistAsync(CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            var dtos = await _http.GetFromJsonAsync<List<WatchlistEntryDto>>(
+                $"{_baseUrl}/watchlist", _jsonOpts, cts.Token).ConfigureAwait(false);
+
+            if (dtos == null) return [];
+
+            return dtos.Select(d => new WatchlistEntry
+            {
+                Mt5Name       = d.Mt5Name,
+                CanonicalName = d.CanonicalName,
+            }).ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    // ─── POST /ensure_candles_range ───────────────────────────────────────────
+
+    /// <summary>
+    /// Lazy fetch MT5 → DuckDB : garantit que la range demandée est présente dans
+    /// candles.db pour tous les symbols de la watchlist MT5 × les TFs fournis.
+    ///
+    /// Bloquant — premier appel d'une date range peut prendre plusieurs minutes
+    /// (download MT5). Runs suivants de la même range = instant (cache hit).
+    ///
+    /// Timeout : 600s (10 min).
+    /// Lève HttpRequestException si MT5 unavailable ou erreur fatale.
+    /// </summary>
+    public async Task<EnsureCandlesRangeResult> EnsureCandlesRangeAsync(
+        DateTimeOffset from, DateTimeOffset to, string[] timeframes,
+        CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(600));
+
+        var body = new EnsureCandlesRangeRequestDto
+        {
+            FromIso    = TimeZoneHelper.FormatIso(from),
+            ToIso      = TimeZoneHelper.FormatIso(to),
+            Timeframes = timeframes.ToList(),
+        };
+
+        var response = await _http.PostAsJsonAsync(
+            $"{_baseUrl}/ensure_candles_range", body, _jsonOpts, cts.Token).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var raw = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            // Tenter de parser comme JSON ErrorDto, sinon utiliser le body brut
+            string msg;
+            try
+            {
+                var err = JsonSerializer.Deserialize<ErrorDto>(raw, _jsonOpts);
+                msg = err?.Error ?? raw;
+            }
+            catch { msg = raw; }
+            throw new HttpRequestException($"ensure_candles_range {(int)response.StatusCode}: {msg}");
+        }
+
+        var rawBody = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+        EnsureCandlesRangeResponseDto dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<EnsureCandlesRangeResponseDto>(rawBody, _jsonOpts)
+                  ?? throw new InvalidOperationException("Réponse /ensure_candles_range vide.");
+        }
+        catch (JsonException ex)
+        {
+            throw new HttpRequestException(
+                $"ensure_candles_range: réponse invalide (début='{rawBody[..Math.Min(100, rawBody.Length)]}')", ex);
+        }
+
+        return new EnsureCandlesRangeResult
+        {
+            TotalSymbols  = dto.TotalSymbols,
+            TotalInserted = dto.TotalInserted,
+            TotalCached   = dto.TotalCached,
+            ElapsedSec    = dto.ElapsedSec,
+            Symbols       = dto.Symbols.Select(s => new SymbolFetchReport
+            {
+                Mt5Name       = s.Mt5Name,
+                CanonicalName = s.CanonicalName,
+                Inserted      = s.Inserted,
+                Cached        = s.Cached,
+                Errors        = s.Errors,
+            }).ToList(),
+        };
     }
 
     // ─── POST /order ──────────────────────────────────────────────────────────
@@ -286,4 +393,59 @@ public sealed class MT5ApiClient : IDisposable
     private sealed record ErrorDto(
         [property: JsonPropertyName("error")]  string Error,
         [property: JsonPropertyName("reason")] string? Reason);
+
+    // ─── /watchlist DTOs ──────────────────────────────────────────────────────
+
+    private sealed record WatchlistEntryDto(
+        [property: JsonPropertyName("mt5_name")]       string Mt5Name,
+        [property: JsonPropertyName("canonical_name")] string CanonicalName);
+
+    // ─── /ensure_candles_range DTOs ───────────────────────────────────────────
+
+    private sealed class EnsureCandlesRangeRequestDto
+    {
+        [JsonPropertyName("from_iso")]   public string       FromIso    { get; set; } = "";
+        [JsonPropertyName("to_iso")]     public string       ToIso      { get; set; } = "";
+        [JsonPropertyName("timeframes")] public List<string> Timeframes { get; set; } = [];
+    }
+
+    private sealed record EnsureCandlesRangeResponseDto(
+        [property: JsonPropertyName("total_symbols")]  int    TotalSymbols,
+        [property: JsonPropertyName("total_inserted")] int    TotalInserted,
+        [property: JsonPropertyName("total_cached")]   int    TotalCached,
+        [property: JsonPropertyName("elapsed_sec")]    double ElapsedSec,
+        [property: JsonPropertyName("symbols")]        List<SymbolFetchReportDto> Symbols);
+
+    private sealed record SymbolFetchReportDto(
+        [property: JsonPropertyName("mt5_name")]       string Mt5Name,
+        [property: JsonPropertyName("canonical_name")] string CanonicalName,
+        [property: JsonPropertyName("inserted")]       Dictionary<string, int>    Inserted,
+        [property: JsonPropertyName("cached")]         Dictionary<string, int>    Cached,
+        [property: JsonPropertyName("errors")]         Dictionary<string, string> Errors);
+}
+
+// ─── Public result types — exposés au reste de l'app ─────────────────────────
+
+public sealed class WatchlistEntry
+{
+    public required string Mt5Name       { get; init; }
+    public required string CanonicalName { get; init; }
+}
+
+public sealed class EnsureCandlesRangeResult
+{
+    public int    TotalSymbols  { get; init; }
+    public int    TotalInserted { get; init; }
+    public int    TotalCached   { get; init; }
+    public double ElapsedSec    { get; init; }
+    public List<SymbolFetchReport> Symbols { get; init; } = [];
+}
+
+public sealed class SymbolFetchReport
+{
+    public required string Mt5Name       { get; init; }
+    public required string CanonicalName { get; init; }
+    public required Dictionary<string, int>    Inserted { get; init; }
+    public required Dictionary<string, int>    Cached   { get; init; }
+    public required Dictionary<string, string> Errors   { get; init; }
 }

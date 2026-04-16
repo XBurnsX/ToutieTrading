@@ -1,9 +1,271 @@
-﻿<Application x:Class="ToutieTrader.UI.App"
+<Application x:Class="ToutieTrader.UI.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ToutieTrader.UI"
-             StartupUri="MainWindow.xaml">
+             Startup="OnStartup">
     <Application.Resources>
-         
+
+        <!-- ── Palette ───────────────────────────────────────────────────────── -->
+        <Color x:Key="ColBg">#0D0D0F</Color>
+        <Color x:Key="ColSurface">#131316</Color>
+        <Color x:Key="ColSurface2">#1A1A1E</Color>
+        <Color x:Key="ColBorder">#222228</Color>
+        <Color x:Key="ColAccent">#E8002D</Color>
+        <Color x:Key="ColText">#F0F0F8</Color>
+        <Color x:Key="ColMuted">#5A5A72</Color>
+        <Color x:Key="ColSuccess">#00C85A</Color>
+        <Color x:Key="ColDanger">#FF3333</Color>
+
+        <SolidColorBrush x:Key="BgBrush"       Color="{StaticResource ColBg}"/>
+        <SolidColorBrush x:Key="SurfaceBrush"  Color="{StaticResource ColSurface}"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="{StaticResource ColSurface2}"/>
+        <SolidColorBrush x:Key="BorderBrush"   Color="{StaticResource ColBorder}"/>
+        <SolidColorBrush x:Key="AccentBrush"   Color="{StaticResource ColAccent}"/>
+        <SolidColorBrush x:Key="TextBrush"     Color="{StaticResource ColText}"/>
+        <SolidColorBrush x:Key="MutedBrush"    Color="{StaticResource ColMuted}"/>
+        <SolidColorBrush x:Key="SuccessBrush"  Color="{StaticResource ColSuccess}"/>
+        <SolidColorBrush x:Key="DangerBrush"   Color="{StaticResource ColDanger}"/>
+
+        <!-- ── Style global TextBlock ────────────────────────────────────────── -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize"   Value="12"/>
+        </Style>
+
+        <!-- ── Style global TextBox ─────────────────────────────────────────── -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background"       Value="{StaticResource Surface2Brush}"/>
+            <Setter Property="Foreground"       Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush"      Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness"  Value="1"/>
+            <Setter Property="Padding"          Value="8,5"/>
+            <Setter Property="FontFamily"       Value="Segoe UI"/>
+            <Setter Property="FontSize"         Value="12"/>
+            <Setter Property="CaretBrush"       Value="{StaticResource TextBrush}"/>
+        </Style>
+
+        <!-- ── Style global CheckBox ────────────────────────────────────────── -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground"  Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontFamily"  Value="Segoe UI"/>
+            <Setter Property="FontSize"    Value="12"/>
+        </Style>
+
+        <!-- ── Style global ComboBox (template complet pour fond sombre du popup) ── -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background"        Value="{StaticResource Surface2Brush}"/>
+            <Setter Property="Foreground"        Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush"       Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness"   Value="1"/>
+            <Setter Property="Padding"           Value="8,5"/>
+            <Setter Property="FontFamily"        Value="Segoe UI"/>
+            <Setter Property="FontSize"          Value="12"/>
+            <Setter Property="MaxDropDownHeight" Value="300"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <!-- Boîte fermée -->
+                            <Border x:Name="Bd"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="2">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="24"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0"
+                                                      Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      Margin="{TemplateBinding Padding}"
+                                                      VerticalAlignment="Center"
+                                                      IsHitTestVisible="False"/>
+                                    <Path Grid.Column="1"
+                                          Data="M 0 0 L 5 5 L 10 0"
+                                          Stroke="{StaticResource MutedBrush}"
+                                          StrokeThickness="1.5"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          IsHitTestVisible="False"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Zone cliquable -->
+                            <ToggleButton Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                              RelativeSource={RelativeSource TemplatedParent}}"
+                                          ClickMode="Press"
+                                          Background="Transparent"
+                                          BorderThickness="0"/>
+
+                            <!-- Popup sombre -->
+                            <Popup x:Name="PART_Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Slide"
+                                   MinWidth="{TemplateBinding ActualWidth}">
+                                <Border Background="{StaticResource Surface2Brush}"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="0,0,2,2">
+                                    <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                                  VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource MutedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Style global ComboBoxItem ────────────────────────────────────── -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background"  Value="Transparent"/>
+            <Setter Property="Foreground"  Value="{StaticResource TextBrush}"/>
+            <Setter Property="Padding"     Value="10,6"/>
+            <Setter Property="FontFamily"  Value="Segoe UI"/>
+            <Setter Property="FontSize"    Value="12"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#252530"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Bouton primaire (accent rouge) ───────────────────────────────── -->
+        <Style x:Key="BtnPrimary" TargetType="Button">
+            <Setter Property="Background"       Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground"       Value="White"/>
+            <Setter Property="BorderThickness"  Value="0"/>
+            <Setter Property="Padding"          Value="18,8"/>
+            <Setter Property="FontFamily"       Value="Segoe UI"/>
+            <Setter Property="FontSize"         Value="12"/>
+            <Setter Property="FontWeight"       Value="SemiBold"/>
+            <Setter Property="Cursor"           Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="2"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#FF1A3D"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Background" Value="#3A1520"/>
+                                <Setter Property="Foreground" Value="#664455"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Bouton secondaire (surface) ──────────────────────────────────── -->
+        <Style x:Key="BtnSecondary" TargetType="Button">
+            <Setter Property="Background"       Value="{StaticResource Surface2Brush}"/>
+            <Setter Property="Foreground"       Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush"      Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness"  Value="1"/>
+            <Setter Property="Padding"          Value="14,7"/>
+            <Setter Property="FontFamily"       Value="Segoe UI"/>
+            <Setter Property="FontSize"         Value="12"/>
+            <Setter Property="Cursor"           Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#222228"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Bouton nav sidebar ────────────────────────────────────────────── -->
+        <Style x:Key="BtnNav" TargetType="RadioButton">
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="Foreground"      Value="{StaticResource MutedBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding"         Value="20,12"/>
+            <Setter Property="FontFamily"      Value="Segoe UI"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderThickness="3,0,0,0"
+                                BorderBrush="Transparent"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#18181C"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#18181C"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Séparateur ────────────────────────────────────────────────────── -->
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Height"     Value="1"/>
+            <Setter Property="Margin"     Value="0"/>
+        </Style>
+
+        
+
     </Application.Resources>
 </Application>

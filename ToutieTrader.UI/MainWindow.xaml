@@ -1,12 +1,105 @@
-﻿<Window x:Class="ToutieTrader.UI.MainWindow"
+<Window x:Class="ToutieTrader.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:ToutieTrader.UI"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="ToutieTrader"
+        MinWidth="1100" MinHeight="680"
+        Width="1280" Height="800"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgBrush}">
 
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="52"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="180"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ══ HEADER ══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Grid.ColumnSpan="2"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Logo -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="TOUTIE"
+                               FontSize="20" FontWeight="Bold"
+                               Foreground="{StaticResource AccentBrush}"/>
+                    <TextBlock Text="TRADER"
+                               FontSize="20" FontWeight="Bold"
+                               Foreground="{StaticResource TextBrush}"/>
+                </StackPanel>
+
+                <!-- Connexion + Start Trading -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal"
+                            VerticalAlignment="Center">
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <Ellipse x:Name="DotPython" Width="8" Height="8"
+                                 Fill="{StaticResource DangerBrush}" Margin="0,0,5,0"/>
+                        <TextBlock Text="Python" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <Ellipse x:Name="DotMt5" Width="8" Height="8"
+                                 Fill="{StaticResource DangerBrush}" Margin="0,0,5,0"/>
+                        <TextBlock Text="MT5" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="TxtConnectionError"
+                               Foreground="{StaticResource DangerBrush}"
+                               FontSize="11" VerticalAlignment="Center"
+                               Margin="0,0,14,0" Visibility="Collapsed"/>
+
+                    <Rectangle Width="1" Height="24"
+                               Fill="{StaticResource BorderBrush}"
+                               Margin="0,0,14,0"/>
+
+                    <Button x:Name="BtnStartTrading"
+                            Content="▶  Start Trading"
+                            Style="{StaticResource BtnPrimary}"
+                            Click="BtnStartTrading_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══ SIDEBAR NAV ══════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Grid.Column="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,1,0">
+            <StackPanel>
+                <RadioButton x:Name="NavAccueil"   Content="Accueil"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             IsChecked="True" Checked="NavAccueil_Checked"/>
+                <RadioButton x:Name="NavHistorique" Content="Historique"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             Checked="NavHistorique_Checked"/>
+                <RadioButton x:Name="NavReplay"    Content="Replay"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             Checked="NavReplay_Checked"/>
+                <RadioButton x:Name="NavStrategy"  Content="Strategy"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             Checked="NavStrategy_Checked"/>
+                <RadioButton x:Name="NavSettings"  Content="Settings"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             Checked="NavSettings_Checked"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ══ CONTENT FRAME ═══════════════════════════════════════════════════ -->
+        <Frame x:Name="MainFrame"
+               Grid.Row="1" Grid.Column="1"
+               Background="{StaticResource BgBrush}"
+               NavigationUIVisibility="Hidden"/>
     </Grid>
 </Window>

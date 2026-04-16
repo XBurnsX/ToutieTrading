@@ -40,4 +40,18 @@ public static class TimeZoneHelper
     /// </summary>
     public static string FormatIso(DateTimeOffset dt)
         => ToQuebec(dt).ToString("yyyy-MM-ddTHH:mm:sszzz");
+
+    /// <summary>
+    /// Convertit un DateTimeOffset en Unix timestamp "fake UTC" représentant
+    /// l'heure Québec. Usage UNIQUEMENT pour les timestamps envoyés au chart
+    /// TradingView Lightweight Charts v3.8.0 qui affiche les Unix en UTC par défaut.
+    /// En traitant l'heure Québec wall-clock comme si c'était de l'UTC, le chart
+    /// affiche les bonnes heures au lieu des heures UTC (+4/+5h de décalage).
+    /// Exemple : Jan 1 2024 00:00 Québec (UTC-5) → Unix 1704067200 (au lieu de 1704088800).
+    /// </summary>
+    public static long ToChartUnixSeconds(DateTimeOffset dt)
+    {
+        var qc = ToQuebec(dt);
+        return new DateTimeOffset(qc.DateTime, TimeSpan.Zero).ToUnixTimeSeconds();
+    }
 }

@@ -1,0 +1,58 @@
+<Page x:Class="ToutieTrader.UI.Pages.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{StaticResource BgBrush}"
+      Title="Settings">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32,28" MaxWidth="520">
+
+            <TextBlock Text="SETTINGS"
+                       FontSize="11" FontWeight="SemiBold"
+                       Foreground="{StaticResource MutedBrush}"
+                       Margin="0,0,0,24"/>
+
+            <!-- ── Risk global ─────────────────────────────────────────────── -->
+            <Border Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="2"
+                    Padding="24,20" Margin="0,0,0,8">
+                <StackPanel>
+                    <TextBlock Text="RISK MANAGEMENT"
+                               FontSize="10"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,0,0,16"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="140"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="% Risque par trade"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock Text="Surchargeable par Settings de la Strategy."
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                        </StackPanel>
+
+                        <TextBox x:Name="TxtRiskPercent"
+                                 Grid.Column="1"
+                                 VerticalAlignment="Center"
+                                 TextChanged="TxtRiskPercent_TextChanged"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Message "non modifiable si trade ouvert" -->
+            <TextBlock x:Name="TxtSettingsLocked"
+                       Text="⚠  Settings non modifiables — trade live ouvert."
+                       Foreground="{StaticResource DangerBrush}"
+                       FontSize="11" Margin="0,8,0,0"
+                       Visibility="Collapsed"/>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
