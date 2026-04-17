@@ -51,6 +51,10 @@ public sealed class IndicatorValues
     public double Kijun26   { get; init; }   // Kijun à -26 périodes
     public double Tenkan26  { get; init; }   // Tenkan à -26 périodes
 
+    // ── Swing 5 bougies (pour SL dynamique) ──────────────────────────────────
+    public double Low5  { get; init; }   // Lowest  Low  des 5 dernières bougies (inclut bougie courante)
+    public double High5 { get; init; }   // Highest High des 5 dernières bougies (inclut bougie courante)
+
     // ── Points Pivots journaliers ─────────────────────────────────────────────
     public double PivotPP { get; init; }   // PP  = (H+L+C) / 3
     public double PivotR1 { get; init; }   // R1  = 2×PP − L

@@ -333,6 +333,85 @@ def get_watchlist() -> list[dict]:
     ]
 
 
+def get_symbol_info(symbol: str) -> dict:
+    """
+    Retourne les métadonnées MT5 d'un symbole.
+    Accepte le nom canonique (ex: "EURUSD") ou broker-natif (ex: "EURUSD.m").
+    Lève RuntimeError si MT5 unavailable, ValueError si symbol introuvable.
+    """
+    if not is_connected():
+        raise RuntimeError("MT5 unavailable")
+
+    # Tenter d'abord le nom direct, sinon résoudre via watchlist
+    info = mt5.symbol_info(symbol)
+    mt5_name = symbol
+
+    if info is None:
+        # Le symbole demandé est peut-être canonical → chercher le broker-natif équivalent
+        for s in (mt5.symbols_get() or []):
+            if _mt5_to_canonical(s.name) == symbol:
+                mt5_name = s.name
+                info = mt5.symbol_info(mt5_name)
+                break
+
+    if info is None:
+        raise ValueError(f"Symbol not found: {symbol}")
+
+    # S'assurer que le symbole est sélectionné dans le Market Watch (pour avoir bid/ask)
+    if not info.visible:
+        mt5.symbol_select(mt5_name, True)
+        info = mt5.symbol_info(mt5_name)
+
+    tick = mt5.symbol_info_tick(mt5_name)
+    bid = float(tick.bid) if tick is not None else 0.0
+    ask = float(tick.ask) if tick is not None else 0.0
+
+    # Calcul authoritatif "money per point per lot" via mt5.order_calc_profit().
+    # Source de vérité : ce que MT5 retournerait comme profit pour 1 lot bougé d'1 unité de prix.
+    # Évite les bugs des tick_value foireux pour CFDs/indices (cross-currency, contract_size weird).
+    # MT5 arrondit le profit à 2 décimales — on query avec un grand delta puis on normalise.
+    money_per_point_per_lot = 0.0
+    try:
+        ref_price = ask if ask > 0 else bid
+        if ref_price > 0 and info.point > 0 and info.volume_min > 0:
+            # Delta = 1% du prix (pour avoir un profit non négligeable malgré l'arrondi MT5).
+            delta = max(ref_price * 0.01, info.point * 1000)
+            # Use volume_min pour s'assurer que MT5 accepte la volume.
+            vol = info.volume_min
+            p = mt5.order_calc_profit(mt5.ORDER_TYPE_BUY, mt5_name, vol, ref_price, ref_price + delta)
+            if p is not None and p > 0 and delta > 0 and vol > 0:
+                # Profit = priceDiff × moneyPerPointPerLot × lot
+                # → moneyPerPointPerLot = profit / (delta × lot)
+                money_per_point_per_lot = float(p) / (delta * vol)
+    except Exception:
+        pass
+
+    return {
+        "mt5_name":               mt5_name,
+        "canonical_name":         _mt5_to_canonical(mt5_name),
+        "digits":                 int(info.digits),
+        "point":                  float(info.point),
+        "trade_contract_size":    float(info.trade_contract_size),
+        "trade_tick_size":        float(info.trade_tick_size),
+        "trade_tick_value":       float(info.trade_tick_value),
+        "money_per_point_per_lot": money_per_point_per_lot,
+        "volume_min":             float(info.volume_min),
+        "volume_max":             float(info.volume_max),
+        "volume_step":            float(info.volume_step),
+        "currency_base":          str(info.currency_base),
+        "currency_profit":        str(info.currency_profit),
+        "currency_margin":        str(info.currency_margin),
+        "spread":                 int(info.spread),
+        "bid":                    bid,
+        "ask":                    ask,
+        # Type de calcul MT5 (0=FOREX, 2=CFD, 3=CFDINDEX…) + path broker
+        # ("Forex\\...", "Metals\\...", "Indices\\...", "Energies\\..."). Sert
+        # à savoir si on charge une commission style ECN (FX/Métaux) ou non.
+        "trade_calc_mode":        int(getattr(info, "trade_calc_mode", 0) or 0),
+        "path":                   str(getattr(info, "path", "") or ""),
+    }
+
+
 def _fetch_mt5_range(mt5_sym: str, tf_code: int, from_dt: datetime, to_dt: datetime, tf_name: str):
     """
     Télécharge les bougies en chunks adaptés au TF.
@@ -587,6 +666,211 @@ def ensure_candles_range(
         con.close()   # toujours fermé — même en cas d'exception
 
     return result
+
+
+# ─── /ensure_ticks_range ──────────────────────────────────────────────────────
+#
+# Lazy fetch MT5 ticks → DuckDB.
+# Pour chaque symbole demandé, télécharge les ticks bruts manquants pour la range
+# et les insère dans la table `ticks`. Utilisé par le Replay en "Mode Tick" pour
+# détection précise SL/TP intra-bougie.
+
+def _fetch_mt5_ticks(mt5_sym: str, from_dt: datetime, to_dt: datetime):
+    """
+    Télécharge les ticks par chunks d'1 jour (ticks volumineux : 100k-1M par jour).
+    Retry 3× par chunk.
+    Retourne un numpy structured array (avec dtype.names: time, bid, ask, last, volume,
+    time_msc, flags, volume_real) ou None si rien.
+    """
+    import numpy as np
+    chunk_days = 1
+    cursor     = from_dt
+    arrays     = []
+
+    while cursor < to_dt:
+        chunk_end = min(cursor + timedelta(days=chunk_days), to_dt)
+
+        ticks = None
+        for attempt in range(3):
+            ticks = mt5.copy_ticks_range(mt5_sym, cursor, chunk_end, mt5.COPY_TICKS_ALL)
+            if ticks is not None and len(ticks) > 0:
+                break
+            time.sleep(0.5 * (attempt + 1))
+
+        if ticks is not None and len(ticks) > 0:
+            arrays.append(ticks)
+
+        cursor = chunk_end
+
+    if not arrays:
+        return None
+    return np.concatenate(arrays)
+
+
+def ensure_ticks_range(
+    from_iso: str,
+    to_iso:   str,
+    symbols:  list[str],
+) -> dict:
+    """
+    Lazy fetch MT5 ticks → DuckDB, pour les symboles fournis.
+
+    Pour chaque symbol :
+      1. Query DuckDB pour min/max existants
+      2. Calcule les ranges manquantes
+      3. Pour chaque range manquante, fetch MT5 + INSERT DB
+      4. Retourne un rapport détaillé
+
+    Lève RuntimeError si MT5 unavailable.
+    """
+    if not is_connected():
+        raise RuntimeError("MT5 unavailable")
+
+    if not symbols:
+        return {"total_symbols": 0, "total_inserted": 0, "total_cached": 0,
+                "elapsed_sec": 0.0, "symbols": []}
+
+    dt_from       = iso_to_utc_naive(from_iso)
+    dt_to         = iso_to_utc_naive(to_iso)
+    dt_from_aware = dt_from.replace(tzinfo=timezone.utc)
+    dt_to_aware   = dt_to.replace(tzinfo=timezone.utc)
+
+    db_path = _resolve_db_path()
+    con     = duckdb.connect(str(db_path))
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ticks (
+                symbol VARCHAR     NOT NULL,
+                time   TIMESTAMPTZ NOT NULL,
+                bid    DOUBLE      NOT NULL,
+                ask    DOUBLE      NOT NULL,
+                last   DOUBLE,
+                volume DOUBLE,
+                flags  INTEGER
+            )
+        """)
+        try:
+            con.execute("CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks(symbol, time)")
+        except Exception:
+            pass
+
+        # Mapping canonical → mt5 broker name (la watchlist contient les noms broker)
+        watchlist    = _get_watchlist_symbols()
+        mt5_by_canon = {_mt5_to_canonical(s.name): s.name for s in watchlist}
+
+        def _to_utc_aware(x):
+            if x is None: return None
+            if isinstance(x, datetime):
+                return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
+            return None
+
+        t_start        = time.perf_counter()
+        total_inserted = 0
+        total_cached   = 0
+        reports        = []
+
+        for canonical in symbols:
+            mt5_sym = mt5_by_canon.get(canonical, canonical)
+
+            # 1. Coverage existante
+            row = con.execute(
+                "SELECT MIN(time), MAX(time) FROM ticks WHERE symbol = ?",
+                [canonical],
+            ).fetchone()
+            db_min, db_max = row if row else (None, None)
+            db_min_aware   = _to_utc_aware(db_min)
+            db_max_aware   = _to_utc_aware(db_max)
+
+            missing_naive = []
+            if db_min_aware is None:
+                missing_naive.append((dt_from, dt_to))
+            else:
+                if dt_from_aware < db_min_aware:
+                    missing_naive.append((dt_from, db_min_aware.astimezone(timezone.utc).replace(tzinfo=None)))
+                if dt_to_aware > db_max_aware:
+                    missing_naive.append((db_max_aware.astimezone(timezone.utc).replace(tzinfo=None), dt_to))
+
+            if not missing_naive:
+                cached = con.execute(
+                    "SELECT COUNT(*) FROM ticks WHERE symbol = ? AND time >= ? AND time <= ?",
+                    [canonical, dt_from_aware, dt_to_aware],
+                ).fetchone()[0]
+                reports.append({"symbol": canonical, "inserted": 0, "cached": int(cached), "error": ""})
+                total_cached += int(cached)
+                continue
+
+            # 2. Sélection symbole + fetch
+            if not mt5.symbol_select(mt5_sym, True):
+                reports.append({"symbol": canonical, "inserted": 0, "cached": 0,
+                                "error": "symbol_select failed"})
+                continue
+
+            inserted_this = 0
+            error_msg     = ""
+            for (range_from, range_to) in missing_naive:
+                try:
+                    ticks_arr = _fetch_mt5_ticks(mt5_sym, range_from, range_to)
+                except Exception as e:
+                    error_msg = f"fetch: {e}"
+                    continue
+                if ticks_arr is None or len(ticks_arr) == 0:
+                    continue
+
+                # ticks_arr est un numpy structured array (préserve les noms de colonnes)
+                df = pd.DataFrame(ticks_arr)
+                if "time_msc" in df.columns:
+                    df["time_q"] = pd.to_datetime(df["time_msc"], unit="ms", utc=True).dt.tz_convert(QUEBEC_TZ)
+                else:
+                    df["time_q"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert(QUEBEC_TZ)
+
+                df = df.drop_duplicates(subset=["time_q", "bid", "ask"]).sort_values("time_q")
+
+                insert_df = pd.DataFrame({
+                    "symbol": canonical,
+                    "time":   df["time_q"],
+                    "bid":    df["bid"].round(5)  if "bid"    in df.columns else 0.0,
+                    "ask":    df["ask"].round(5)  if "ask"    in df.columns else 0.0,
+                    "last":   df["last"].round(5) if "last"   in df.columns else 0.0,
+                    "volume": df["volume"].astype("float64") if "volume" in df.columns else 0.0,
+                    "flags":  df["flags"].astype("int32")    if "flags"  in df.columns else 0,
+                })
+
+                # Idempotent : supprime les ticks déjà présents dans cette range avant insert.
+                # Évite les doublons quand on re-fetch un boundary (db_max → range_from).
+                rf_aware = range_from.replace(tzinfo=timezone.utc)
+                rt_aware = range_to.replace(tzinfo=timezone.utc)
+                con.execute(
+                    "DELETE FROM ticks WHERE symbol = ? AND time >= ? AND time < ?",
+                    [canonical, rf_aware, rt_aware],
+                )
+                con.execute("INSERT INTO ticks SELECT * FROM insert_df")
+                inserted_this += len(insert_df)
+
+            total_inserted += inserted_this
+
+            cached_count = con.execute(
+                "SELECT COUNT(*) FROM ticks WHERE symbol = ? AND time >= ? AND time <= ?",
+                [canonical, dt_from_aware, dt_to_aware],
+            ).fetchone()[0]
+            cached_for_range = max(0, int(cached_count) - inserted_this)
+            total_cached    += cached_for_range
+
+            reports.append({
+                "symbol":   canonical,
+                "inserted": inserted_this,
+                "cached":   cached_for_range,
+                "error":    error_msg,
+            })
+
+        return {
+            "total_symbols":  len(symbols),
+            "total_inserted": total_inserted,
+            "total_cached":   total_cached,
+            "elapsed_sec":    round(time.perf_counter() - t_start, 2),
+            "symbols":        reports,
+        }
+    finally:
+        con.close()
 
 
 # ─── Exceptions personnalisées ────────────────────────────────────────────────

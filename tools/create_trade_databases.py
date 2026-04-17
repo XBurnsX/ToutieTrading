@@ -44,7 +44,8 @@ CREATE_TRADES_TABLE = """
         correlation_id    UUID        NOT NULL,
         exit_reason       VARCHAR,                     -- 'TP' | 'SL' | 'ForceExit:[label]' | 'OptionalExit:[label]'
         conditions_met    JSON,                        -- JSON array des labels de conditions remplies
-        error_log         VARCHAR                      -- NULL si succès, message si erreur
+        error_log         VARCHAR,                     -- NULL si succès, message si erreur
+        fees              DOUBLE                       -- Frais totaux $ (spread + commission round-trip)
     )
 """
 

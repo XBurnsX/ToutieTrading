@@ -24,6 +24,13 @@ public sealed class StrategyCondition
     public Func<IndicatorValues, TrendState, bool> Expression { get; init; } = (_, _) => false;
 
     /// <summary>
+    /// Variante pour les sorties qui ont besoin du trade ouvert (entry, SL, direction).
+    /// Si null, le moteur utilise Expression. La logique reste déclarée par la Strategy ;
+    /// le moteur ne fait qu'évaluer la condition fournie.
+    /// </summary>
+    public Func<IndicatorValues, TrendState, TradeRecord, bool>? TradeExpression { get; init; } = null;
+
+    /// <summary>
     /// Direction à laquelle cette condition s'applique.
     /// null = toutes directions | "BUY" = long seulement | "SELL" = short seulement.
     /// Utilisé principalement dans ForceExitConditions et OptionalExitConditions

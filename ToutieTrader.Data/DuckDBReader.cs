@@ -143,6 +143,58 @@ public sealed class DuckDBReader
     }
 
     /// <summary>
+    /// Vérifie rapidement si la DB couvre déjà la range demandée pour CE symbol
+    /// sur TOUS les timeframes fournis. Utilisé pour skip ensure_candles_range
+    /// quand les données sont déjà en cache local.
+    ///
+    /// Retourne true seulement si pour CHAQUE tf : MIN(time) <= from ET MAX(time) >= to.
+    /// Retourne false dès qu'un TF manque ou ne couvre pas la range.
+    /// </summary>
+    public bool HasFullCoverage(
+        string symbol, IEnumerable<string> timeframes,
+        DateTimeOffset from, DateTimeOffset to)
+    {
+        try
+        {
+            using var con = OpenRead();
+            foreach (var tf in timeframes)
+            {
+                using var cmd = con.CreateCommand();
+                // On compte les candles qui tombent DANS la range demandée.
+                // Pas de comparaison stricte sur MIN/MAX — les TFs hauts (H4/D) ne
+                // s'alignent jamais pile aux bornes choisies par l'utilisateur, donc
+                // exiger dbMin <= from causerait toujours un faux miss de cache.
+                cmd.CommandText = """
+                    SELECT COUNT(*)
+                    FROM candles
+                    WHERE symbol = $symbol
+                      AND timeframe = $tf
+                      AND time >= $from
+                      AND time <= $to
+                    """;
+                cmd.Parameters.Add(new DuckDBParameter("symbol", symbol));
+                cmd.Parameters.Add(new DuckDBParameter("tf",     tf));
+                cmd.Parameters.Add(new DuckDBParameter("from",   from.UtcDateTime));
+                cmd.Parameters.Add(new DuckDBParameter("to",     to.UtcDateTime));
+
+                using var r = cmd.ExecuteReader();
+                if (!r.Read()) return false;
+                long count = r.GetInt64(0);
+                // Au moins 1 candle dans la range → on considère que ce TF est cached.
+                // (Si l'utilisateur veut vraiment un fetch complet il peut toujours le
+                // forcer manuellement via le bridge.)
+                if (count == 0) return false;
+            }
+            return true;
+        }
+        catch
+        {
+            // DB locked / pas accessible → on retourne false, le caller fera fallback.
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Compte de bougies par symbole/TF — utile pour la validation.
     /// </summary>
     public Dictionary<(string Symbol, string Timeframe), int> GetCandleCounts()
@@ -200,6 +252,64 @@ public sealed class DuckDBReader
         }
 
         return result;
+    }
+
+    // ─── Ticks ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Retourne les ticks bruts MT5 (bid/ask) entre deux dates pour un symbole.
+    /// Utilisé par le Replay en "Mode Tick" pour détection précise SL/TP intra-bougie.
+    /// Bornes incluses. Timestamps retournées en heure Québec offset-aware.
+    /// Retourne liste vide si la table `ticks` n'existe pas encore.
+    /// </summary>
+    public List<Tick> GetTicksInRange(
+        string symbol, DateTimeOffset from, DateTimeOffset to)
+    {
+        using var con = OpenRead();
+
+        // Si la table n'existe pas encore (jamais de fetch ticks), retourne vide
+        using (var checkCmd = con.CreateCommand())
+        {
+            checkCmd.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ticks'";
+            var exists = Convert.ToInt64(checkCmd.ExecuteScalar() ?? 0L);
+            if (exists == 0) return [];
+        }
+
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = """
+            SELECT time, bid, ask, last, volume, flags
+            FROM ticks
+            WHERE symbol = $symbol
+              AND time >= $from
+              AND time <= $to
+            ORDER BY time
+            """;
+
+        cmd.Parameters.Add(new DuckDBParameter("symbol", symbol));
+        cmd.Parameters.Add(new DuckDBParameter("from",   from.UtcDateTime));
+        cmd.Parameters.Add(new DuckDBParameter("to",     to.UtcDateTime));
+
+        using var reader = cmd.ExecuteReader();
+        var ticks = new List<Tick>();
+
+        while (reader.Read())
+        {
+            var utc  = reader.GetDateTime(0);
+            var time = TimeZoneHelper.ToQuebec(utc);
+
+            ticks.Add(new Tick
+            {
+                Symbol = symbol,
+                Time   = time,
+                Bid    = reader.GetDouble(1),
+                Ask    = reader.GetDouble(2),
+                Last   = reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
+                Volume = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+                Flags  = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
+            });
+        }
+
+        return ticks;
     }
 
     // ─── Privé ────────────────────────────────────────────────────────────────

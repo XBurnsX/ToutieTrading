@@ -1,14 +1,23 @@
 <Window x:Class="ToutieTrader.UI.Windows.TradePopupWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="Détail du Trade"
-        Width="480" Height="420"
-        MinWidth="360" MinHeight="300"
+        Width="1100" Height="720"
+        MinWidth="700" MinHeight="500"
         Background="{StaticResource BgBrush}"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip">
 
     <Grid Margin="24,20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="420"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+      <!-- ── Colonne gauche : infos texte ─────────────────────────────────── -->
+      <Grid Grid.Column="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="16"/>
@@ -121,5 +130,15 @@
                 Style="{StaticResource BtnSecondary}"
                 HorizontalAlignment="Right"
                 Click="BtnClose_Click"/>
+      </Grid>
+
+      <!-- ── Colonne droite : chart WebView2 ────────────────────────────────── -->
+      <Border Grid.Column="2"
+              BorderBrush="{StaticResource BorderBrush}"
+              BorderThickness="1"
+              CornerRadius="2"
+              Background="#0D0D0F">
+          <wv2:WebView2 x:Name="Chart"/>
+      </Border>
     </Grid>
 </Window>

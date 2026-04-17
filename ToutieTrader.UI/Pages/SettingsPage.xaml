@@ -33,7 +33,7 @@
                             <TextBlock Text="% Risque par trade"
                                        FontWeight="SemiBold"
                                        Margin="0,0,0,3"/>
-                            <TextBlock Text="Surchargeable par Settings de la Strategy."
+                            <TextBlock Text="Setting GLOBAL — appliqué à toutes les Strategies."
                                        FontSize="11"
                                        Foreground="{StaticResource MutedBrush}"/>
                         </StackPanel>
@@ -42,6 +42,27 @@
                                  Grid.Column="1"
                                  VerticalAlignment="Center"
                                  TextChanged="TxtRiskPercent_TextChanged"/>
+                    </Grid>
+
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="140"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Commission $/lot/côté"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,3"/>
+                            <TextBlock Text="IC Markets ≈ 3.5 USD. Comptée à l'entrée + à la sortie."
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedBrush}"/>
+                        </StackPanel>
+
+                        <TextBox x:Name="TxtCommission"
+                                 Grid.Column="1"
+                                 VerticalAlignment="Center"
+                                 TextChanged="TxtCommission_TextChanged"/>
                     </Grid>
                 </StackPanel>
             </Border>

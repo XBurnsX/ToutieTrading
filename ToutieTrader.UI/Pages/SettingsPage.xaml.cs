@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using ToutieTrader.UI.ViewModels;
@@ -15,7 +16,8 @@ public partial class SettingsPage : Page
         _vm = vm;
 
         _suppressChange = true;
-        TxtRiskPercent.Text = "1.0";
+        TxtRiskPercent.Text = _vm.GlobalRiskPercent.ToString(CultureInfo.InvariantCulture);
+        TxtCommission.Text  = _vm.CommissionPerLotPerSide.ToString(CultureInfo.InvariantCulture);
         _suppressChange = false;
 
         vm.PropertyChanged += (_, e) =>
@@ -30,18 +32,29 @@ public partial class SettingsPage : Page
     private void UpdateLockState()
     {
         bool canEdit = _vm.CanEditSettings;
-        TxtRiskPercent.IsEnabled          = canEdit;
-        TxtSettingsLocked.Visibility      = canEdit ? Visibility.Collapsed : Visibility.Visible;
+        TxtRiskPercent.IsEnabled       = canEdit;
+        TxtCommission.IsEnabled        = canEdit;
+        TxtSettingsLocked.Visibility   = canEdit ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void TxtRiskPercent_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_suppressChange) return;
-        // Valeur utilisée par la Strategy via Settings["RiskPercent"]
-        // Le parsing est validé silencieusement — mauvais format = ignoré
-        if (decimal.TryParse(TxtRiskPercent.Text, out var val) && val > 0 && val <= 10)
+        if (decimal.TryParse(TxtRiskPercent.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var val)
+            && val > 0 && val <= 10)
         {
-            // TODO : propager au StrategyRunner si nécessaire
+            _vm.GlobalRiskPercent = val;
         }
     }
+
+    private void TxtCommission_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressChange) return;
+        if (decimal.TryParse(TxtCommission.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var val)
+            && val >= 0 && val <= 100)
+        {
+            _vm.CommissionPerLotPerSide = val;
+        }
+    }
+
 }

@@ -37,7 +37,10 @@ from models import (
     CloseOrderResponse,
     EnsureCandlesRangeRequest,
     EnsureCandlesRangeResponse,
+    EnsureTicksRangeRequest,
+    EnsureTicksRangeResponse,
     WatchlistSymbol,
+    SymbolInfoResponse,
 )
 
 
@@ -156,6 +159,25 @@ async def watchlist():
         return JSONResponse(status_code=503, content={"error": str(e)})
 
 
+# ─── GET /symbol_info ─────────────────────────────────────────────────────────
+
+@app.get("/symbol_info", response_model=SymbolInfoResponse)
+async def symbol_info(symbol: str):
+    """
+    Retourne les métadonnées MT5 d'un symbole (point, contract size, tick value/size,
+    volume_min/max/step, devises, spread courant, bid/ask).
+    Accepte nom canonique (ex: "EURUSD") ou broker-natif (ex: "EURUSD.m").
+    Utilisé par le C# pour calculer un lot/SL/TP réaliste sans rien hardcoder.
+    Timeout C# : 5s.
+    """
+    try:
+        return mt5_service.get_symbol_info(symbol)
+    except RuntimeError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+
+
 # ─── POST /ensure_candles_range ───────────────────────────────────────────────
 
 @app.post("/ensure_candles_range", response_model=EnsureCandlesRangeResponse)
@@ -178,6 +200,28 @@ async def ensure_candles_range(req: EnsureCandlesRangeRequest):
             from_iso=req.from_iso,
             to_iso=req.to_iso,
             timeframes=req.timeframes,
+        )
+    except RuntimeError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": str(e)})
+
+
+# ─── POST /ensure_ticks_range ─────────────────────────────────────────────────
+
+@app.post("/ensure_ticks_range", response_model=EnsureTicksRangeResponse)
+async def ensure_ticks_range(req: EnsureTicksRangeRequest):
+    """
+    Lazy fetch MT5 ticks → DuckDB pour les symboles fournis.
+    Utilisé par le Replay en "Mode Tick" pour détection précise SL/TP intra-bougie.
+    Premier run d'une date range = lent (fetch MT5). Runs suivants = instant.
+    Timeout C# : 600s.
+    """
+    try:
+        return mt5_service.ensure_ticks_range(
+            from_iso=req.from_iso,
+            to_iso=req.to_iso,
+            symbols=req.symbols,
         )
     except RuntimeError as e:
         return JSONResponse(status_code=503, content={"error": str(e)})

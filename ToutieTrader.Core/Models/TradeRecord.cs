@@ -17,12 +17,16 @@ public sealed class TradeRecord
     public double?         EntryPrice  { get; set; }
     public double?         Sl          { get; set; }
     public double?         Tp          { get; set; }
+    public string?         TpReason    { get; set; }
 
     public DateTimeOffset? ExitTime    { get; set; }
     public double?         ExitPrice   { get; set; }
     public double?         ProfitLoss  { get; set; }
     public double?         RiskDollars { get; set; }
     public double?         LotSize     { get; set; }
+
+    /// <summary>Frais totaux $ payés (coût du spread à l'entrée + commission round-trip).</summary>
+    public double?         Fees        { get; set; }
 
     public long?   TicketId      { get; set; }
     public string  CorrelationId { get; set; } = string.Empty;

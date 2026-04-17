@@ -123,6 +123,13 @@
                     <TextBlock Text="Strategy" Foreground="{StaticResource MutedBrush}"
                                VerticalAlignment="Center" Margin="10,0,6,0" FontSize="11"/>
                     <ComboBox x:Name="CmbStrategy" Width="160" VerticalAlignment="Center"/>
+
+                    <CheckBox x:Name="ChkTickMode"
+                              Content="Mode Tick"
+                              Foreground="{StaticResource TextBrush}"
+                              VerticalAlignment="Center"
+                              Margin="14,0,0,0"
+                              FontSize="11"/>
                 </StackPanel>
 
                 <!-- Barre de progression -->
@@ -321,12 +328,14 @@
                         </Style>
                     </DataGrid.ColumnHeaderStyle>
                     <DataGrid.Columns>
+                        <DataGridTextColumn Header="Symbol" Binding="{Binding Symbol}"                                       Width="80"/>
                         <DataGridTextColumn Header="Dir"    Binding="{Binding Direction}"                                    Width="40"/>
                         <DataGridTextColumn Header="Entrée" Binding="{Binding EntryPrice, StringFormat=N5}"                  Width="80"/>
                         <DataGridTextColumn Header="Sortie" Binding="{Binding ExitPrice,  StringFormat=N5}"                  Width="80"/>
                         <DataGridTextColumn Header="SL"     Binding="{Binding Sl,         StringFormat=N5}"                  Width="80"/>
                         <DataGridTextColumn Header="TP"     Binding="{Binding Tp,         StringFormat=N5}"                  Width="80"/>
                         <DataGridTextColumn Header="P/L $"  Binding="{Binding ProfitLoss, StringFormat=N2}"                  Width="70"/>
+                        <DataGridTextColumn Header="Frais $" Binding="{Binding Fees,      StringFormat=N2}"                  Width="70"/>
                         <DataGridTextColumn Header="Raison" Binding="{Binding ExitReason}"                                   Width="100"/>
                         <DataGridTextColumn Header="Date entrée" Binding="{Binding EntryTime, StringFormat=\{0:MM-dd HH:mm\}}" Width="*"/>
                     </DataGrid.Columns>

@@ -165,6 +165,63 @@ public sealed class MT5ApiClient : IDisposable
         }
     }
 
+    // ─── GET /symbol_info ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Retourne les métadonnées MT5 d'un symbole (point, contract size, tick value/size,
+    /// volume_min/max/step, devises, spread courant, bid/ask).
+    /// Accepte nom canonique (ex: "EURUSD") ou broker-natif (ex: "EURUSD.m").
+    /// Lève HttpRequestException si MT5 unavailable ou symbol introuvable.
+    /// </summary>
+    public async Task<SymbolMeta> GetSymbolInfoAsync(string symbol, CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        var url      = $"{_baseUrl}/symbol_info?symbol={Uri.EscapeDataString(symbol)}";
+        var response = await _http.GetAsync(url, cts.Token).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var raw = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            string msg;
+            try
+            {
+                var err = JsonSerializer.Deserialize<ErrorDto>(raw, _jsonOpts);
+                msg = err?.Error ?? raw;
+            }
+            catch { msg = raw; }
+            throw new HttpRequestException($"symbol_info {(int)response.StatusCode}: {msg}");
+        }
+
+        var dto = await response.Content.ReadFromJsonAsync<SymbolInfoDto>(
+            _jsonOpts, cts.Token).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Réponse /symbol_info vide.");
+
+        return new SymbolMeta
+        {
+            Mt5Name           = dto.Mt5Name,
+            CanonicalName     = dto.CanonicalName,
+            Digits            = dto.Digits,
+            Point             = dto.Point,
+            TradeContractSize = dto.TradeContractSize,
+            TradeTickSize     = dto.TradeTickSize,
+            TradeTickValue    = dto.TradeTickValue,
+            MoneyPerPointPerLot = dto.MoneyPerPointPerLot,
+            VolumeMin         = dto.VolumeMin,
+            VolumeMax         = dto.VolumeMax,
+            VolumeStep        = dto.VolumeStep,
+            CurrencyBase      = dto.CurrencyBase,
+            CurrencyProfit    = dto.CurrencyProfit,
+            CurrencyMargin    = dto.CurrencyMargin,
+            Spread            = dto.Spread,
+            Bid               = dto.Bid,
+            Ask               = dto.Ask,
+            TradeCalcMode     = dto.TradeCalcMode,
+            Path              = dto.Path,
+        };
+    }
+
     // ─── POST /ensure_candles_range ───────────────────────────────────────────
 
     /// <summary>
@@ -234,6 +291,64 @@ public sealed class MT5ApiClient : IDisposable
                 Inserted      = s.Inserted,
                 Cached        = s.Cached,
                 Errors        = s.Errors,
+            }).ToList(),
+        };
+    }
+
+    // ─── POST /ensure_ticks_range ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Lazy fetch MT5 ticks → DuckDB pour les symboles donnés.
+    /// Utilisé par le Replay en "Mode Tick" pour détection précise SL/TP intra-bougie.
+    /// Bloquant — premier appel d'une range peut prendre plusieurs minutes.
+    /// Timeout : 600s.
+    /// </summary>
+    public async Task<EnsureTicksRangeResult> EnsureTicksRangeAsync(
+        DateTimeOffset from, DateTimeOffset to, string[] symbols,
+        CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(600));
+
+        var body = new EnsureTicksRangeRequestDto
+        {
+            FromIso = TimeZoneHelper.FormatIso(from),
+            ToIso   = TimeZoneHelper.FormatIso(to),
+            Symbols = symbols.ToList(),
+        };
+
+        var response = await _http.PostAsJsonAsync(
+            $"{_baseUrl}/ensure_ticks_range", body, _jsonOpts, cts.Token).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var raw = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            string msg;
+            try
+            {
+                var err = JsonSerializer.Deserialize<ErrorDto>(raw, _jsonOpts);
+                msg = err?.Error ?? raw;
+            }
+            catch { msg = raw; }
+            throw new HttpRequestException($"ensure_ticks_range {(int)response.StatusCode}: {msg}");
+        }
+
+        var dto = await response.Content.ReadFromJsonAsync<EnsureTicksRangeResponseDto>(
+            _jsonOpts, cts.Token).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Réponse /ensure_ticks_range vide.");
+
+        return new EnsureTicksRangeResult
+        {
+            TotalSymbols  = dto.TotalSymbols,
+            TotalInserted = dto.TotalInserted,
+            TotalCached   = dto.TotalCached,
+            ElapsedSec    = dto.ElapsedSec,
+            Symbols       = dto.Symbols.Select(s => new TicksFetchReport
+            {
+                Symbol   = s.Symbol,
+                Inserted = s.Inserted,
+                Cached   = s.Cached,
+                Error    = s.Error,
             }).ToList(),
         };
     }
@@ -400,6 +515,29 @@ public sealed class MT5ApiClient : IDisposable
         [property: JsonPropertyName("mt5_name")]       string Mt5Name,
         [property: JsonPropertyName("canonical_name")] string CanonicalName);
 
+    // ─── /symbol_info DTO ─────────────────────────────────────────────────────
+
+    private sealed record SymbolInfoDto(
+        [property: JsonPropertyName("mt5_name")]            string Mt5Name,
+        [property: JsonPropertyName("canonical_name")]      string CanonicalName,
+        [property: JsonPropertyName("digits")]              int    Digits,
+        [property: JsonPropertyName("point")]               double Point,
+        [property: JsonPropertyName("trade_contract_size")] double TradeContractSize,
+        [property: JsonPropertyName("trade_tick_size")]     double TradeTickSize,
+        [property: JsonPropertyName("trade_tick_value")]    double TradeTickValue,
+        [property: JsonPropertyName("money_per_point_per_lot")] double MoneyPerPointPerLot,
+        [property: JsonPropertyName("volume_min")]          double VolumeMin,
+        [property: JsonPropertyName("volume_max")]          double VolumeMax,
+        [property: JsonPropertyName("volume_step")]         double VolumeStep,
+        [property: JsonPropertyName("currency_base")]       string CurrencyBase,
+        [property: JsonPropertyName("currency_profit")]     string CurrencyProfit,
+        [property: JsonPropertyName("currency_margin")]     string CurrencyMargin,
+        [property: JsonPropertyName("spread")]              int    Spread,
+        [property: JsonPropertyName("bid")]                 double Bid,
+        [property: JsonPropertyName("ask")]                 double Ask,
+        [property: JsonPropertyName("trade_calc_mode")]     int    TradeCalcMode = 0,
+        [property: JsonPropertyName("path")]                string Path          = "");
+
     // ─── /ensure_candles_range DTOs ───────────────────────────────────────────
 
     private sealed class EnsureCandlesRangeRequestDto
@@ -422,6 +560,28 @@ public sealed class MT5ApiClient : IDisposable
         [property: JsonPropertyName("inserted")]       Dictionary<string, int>    Inserted,
         [property: JsonPropertyName("cached")]         Dictionary<string, int>    Cached,
         [property: JsonPropertyName("errors")]         Dictionary<string, string> Errors);
+
+    // ─── /ensure_ticks_range DTOs ─────────────────────────────────────────────
+
+    private sealed class EnsureTicksRangeRequestDto
+    {
+        [JsonPropertyName("from_iso")] public string       FromIso { get; set; } = "";
+        [JsonPropertyName("to_iso")]   public string       ToIso   { get; set; } = "";
+        [JsonPropertyName("symbols")]  public List<string> Symbols { get; set; } = [];
+    }
+
+    private sealed record EnsureTicksRangeResponseDto(
+        [property: JsonPropertyName("total_symbols")]  int    TotalSymbols,
+        [property: JsonPropertyName("total_inserted")] int    TotalInserted,
+        [property: JsonPropertyName("total_cached")]   int    TotalCached,
+        [property: JsonPropertyName("elapsed_sec")]    double ElapsedSec,
+        [property: JsonPropertyName("symbols")]        List<TicksFetchReportDto> Symbols);
+
+    private sealed record TicksFetchReportDto(
+        [property: JsonPropertyName("symbol")]   string Symbol,
+        [property: JsonPropertyName("inserted")] int    Inserted,
+        [property: JsonPropertyName("cached")]   int    Cached,
+        [property: JsonPropertyName("error")]    string Error);
 }
 
 // ─── Public result types — exposés au reste de l'app ─────────────────────────
@@ -448,4 +608,21 @@ public sealed class SymbolFetchReport
     public required Dictionary<string, int>    Inserted { get; init; }
     public required Dictionary<string, int>    Cached   { get; init; }
     public required Dictionary<string, string> Errors   { get; init; }
+}
+
+public sealed class EnsureTicksRangeResult
+{
+    public int    TotalSymbols  { get; init; }
+    public int    TotalInserted { get; init; }
+    public int    TotalCached   { get; init; }
+    public double ElapsedSec    { get; init; }
+    public List<TicksFetchReport> Symbols { get; init; } = [];
+}
+
+public sealed class TicksFetchReport
+{
+    public required string Symbol   { get; init; }
+    public required int    Inserted { get; init; }
+    public required int    Cached   { get; init; }
+    public required string Error    { get; init; }
 }

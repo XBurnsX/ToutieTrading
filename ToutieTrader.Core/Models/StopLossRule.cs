@@ -13,10 +13,6 @@ public enum StopLossType
 /// <summary>
 /// Règle de stop-loss déclarée par la Strategy.
 /// Le calcul est fait par StrategyRunner — jamais dans la Strategy.
-///
-/// Pour un SL non couvert par les types prédéfinis, utiliser Type = Custom
-/// et fournir une lambda CustomCompute(iv, direction) → prix SL.
-/// Aucune modification du Core requise.
 /// </summary>
 public sealed class StopLossRule
 {

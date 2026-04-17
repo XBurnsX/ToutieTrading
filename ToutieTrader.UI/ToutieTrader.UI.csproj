@@ -13,6 +13,9 @@
     <Content Include="Chart\chart.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Chart\trade_chart.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- Copier les .cs du dossier racine /Strategies/ vers {output}/Strategies/ -->

@@ -7,74 +7,78 @@ namespace ToutieTrader.Core.Engine;
 /// Calcule le lot size et vérifie les limites de risk.
 /// Zéro calcul de risk dans la Strategy — tout passe ici.
 ///
-/// Formule :
-///   risk_dollars = capital × (risk_percent / 100)
-///   lot_size     = risk_dollars / (sl_pips × pip_value_per_lot)
+/// Formule UNIVERSELLE (FX, indices, métaux, crypto — tout MT5) :
+///   risk_dollars   = capital × (risk_percent / 100)
+///   moneyPerLot    = (slDistance / TradeTickSize) × TradeTickValue   ← 1 lot, perte au SL
+///   lot_size       = risk_dollars / moneyPerLot
+///   lot_size       = NormalizeVolume(lot_size)                        ← clamp + step rounding
 ///
-/// pip_value_per_lot = 10 USD pour les paires XXX/USD (approximation V1).
+/// Aucun pip hardcodé. Toutes les métadonnées viennent de SymbolMeta (mt5.symbol_info()).
+/// Le % de risk vient TOUJOURS de SettingsPage (GLOBAL) — JAMAIS d'une Strategy.
 /// </summary>
 public sealed class RiskEngine
 {
-    private const double PipValuePerLot = 10.0;   // $10 / pip / lot standard (approximation V1)
-    private const double MinLotSize     = 0.01;
-    private const double MaxLotSize     = 100.0;
-
-    // ─── API publique ─────────────────────────────────────────────────────────
-
     /// <summary>
-    /// Calcule lot_size et risk_dollars.
-    /// Retourne null si MaxSimultaneousTrades ou MaxDailyDrawdownPercent dépassés.
+    /// Calcule lot_size et risk_dollars en dollars du compte.
+    /// Retourne null si :
+    ///   - MaxSimultaneousTrades dépassé
+    ///   - MaxDailyDrawdown dépassé
+    ///   - SL distance nulle ou meta invalide
+    ///   - lot calculé < volume_min du broker (capital trop petit pour ce SL)
     /// </summary>
     public RiskResult? Calculate(
         double     capital,
-        double     riskPercent,
+        double     riskPercent,            // setting GLOBAL — vient de SettingsPage
         double     entryPrice,
         double     slPrice,
-        string     symbol,
+        SymbolMeta meta,
         IStrategy  strategy,
         int        openTradesCount,
-        double     dailyDrawdownPercent)
+        double     dailyDrawdownPercent,
+        double     estimatedRoundTripFeesPerLot = 0.0)
     {
-        // Vérification MaxSimultaneousTrades
-        if (openTradesCount >= strategy.MaxSimultaneousTrades)
+        // Vérifications stratégie
+        if (openTradesCount >= strategy.MaxSimultaneousTrades) return null;
+        if (dailyDrawdownPercent >= (double)strategy.MaxDailyDrawdownPercent) return null;
+
+        if (meta.TradeTickSize <= 0 || meta.TradeTickValue <= 0) return null;
+
+        double slDistance = Math.Abs(entryPrice - slPrice);
+        if (slDistance <= 0) return null;
+
+        double riskDollars = capital * (riskPercent / 100.0);
+        if (riskDollars <= 0) return null;
+
+        // Valeur monétaire d'une perte au SL pour 1 lot (universel : FX, indices, métaux…)
+        double moneyPerLotAtSl = meta.MoneyPerLot(slDistance) + Math.Max(0, estimatedRoundTripFeesPerLot);
+        if (moneyPerLotAtSl <= 0) return null;
+
+        double rawLot = riskDollars / moneyPerLotAtSl;
+
+        // Si le capital est trop petit pour respecter volume_min sans excéder le risk
+        // demandé, on REFUSE le trade (jamais clamper vers le haut au volume_min, ce qui
+        // exploserait le risk réel — bug historique).
+        if (rawLot < meta.VolumeMin)
             return null;
 
-        // Vérification MaxDailyDrawdown
-        if (dailyDrawdownPercent >= (double)strategy.MaxDailyDrawdownPercent)
+        // Inverse : si le risk demandé exige PLUS que volume_max, on REFUSE aussi.
+        // Sinon NormalizeVolume clampe silencieusement à volume_max et les commissions
+        // (calculées sur lotSize réel) explosent — typique sur indices cross-currency
+        // (JP225 par ex.) où chaque lot génère très peu de $/point.
+        if (rawLot > meta.VolumeMax)
             return null;
 
-        // RiskPercent : Settings["RiskPercent"] surcharge la propriété si présent
-        double effectiveRiskPct = riskPercent;
-        if (strategy.Settings.TryGetValue("RiskPercent", out var settingRisk))
-            effectiveRiskPct = Convert.ToDouble(settingRisk);
+        double lotSize = meta.NormalizeVolume(rawLot);
+        if (lotSize <= 0) return null;
 
-        double riskDollars = capital * (effectiveRiskPct / 100.0);
-
-        // Distance SL en pips
-        double pipSize = GetPipSize(symbol);
-        double slPips  = Math.Abs(entryPrice - slPrice) / pipSize;
-
-        if (slPips <= 0) return null;
-
-        double lotSize = riskDollars / (slPips * PipValuePerLot);
-        lotSize = Math.Round(lotSize, 2);
-        lotSize = Math.Clamp(lotSize, MinLotSize, MaxLotSize);
+        double actualRiskDollars = moneyPerLotAtSl * lotSize;
 
         return new RiskResult
         {
             LotSize     = lotSize,
-            RiskDollars = Math.Round(riskDollars, 2),
+            RiskDollars = Math.Round(actualRiskDollars, 2),
         };
     }
-
-    // ─── Pip size par symbole ─────────────────────────────────────────────────
-
-    /// <summary>
-    /// Taille d'un pip selon le symbole.
-    /// JPY pairs = 0.01, tout le reste = 0.0001.
-    /// </summary>
-    private static double GetPipSize(string symbol)
-        => symbol.Contains("JPY", StringComparison.OrdinalIgnoreCase) ? 0.01 : 0.0001;
 }
 
 public sealed class RiskResult

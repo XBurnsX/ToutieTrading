@@ -22,6 +22,51 @@ public sealed class TradeRepository
     {
         _liveCs   = $"Data Source={liveDbPath};";
         _replayCs = $"Data Source={replayDbPath};";
+
+        // Migration : assure-toi que les colonnes ajoutées après création existent.
+        // ALTER TABLE ADD COLUMN IF NOT EXISTS — DuckDB-supported.
+        EnsureSchema(_liveCs);
+        EnsureSchema(_replayCs);
+    }
+
+    private static void EnsureSchema(string cs)
+    {
+        try
+        {
+            using var con = Open(cs);
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = "ALTER TABLE trades ADD COLUMN IF NOT EXISTS fees DOUBLE";
+            cmd.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Si la table n'existe pas encore (DB non initialisée), on ignore — sera créée
+            // par tools/create_trade_databases.py avec le schéma à jour.
+        }
+    }
+
+    /// <summary>
+    /// Vide tous les trades de la DB replay. Appelé au stop replay et à la fermeture
+    /// de l'app — la DB replay est éphémère, on ne garde rien d'une session à l'autre.
+    /// </summary>
+    public async Task WipeReplayAsync()
+    {
+        await _replayLock.WaitAsync();
+        try
+        {
+            using var con = Open(_replayCs);
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = "DELETE FROM trades";
+            cmd.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Si la table n'existe pas, rien à wiper.
+        }
+        finally
+        {
+            _replayLock.Release();
+        }
     }
 
     // ─── Écriture ─────────────────────────────────────────────────────────────
@@ -46,12 +91,12 @@ public sealed class TradeRepository
                     id, symbol, strategy_name, strategy_settings, direction,
                     entry_time, entry_price, sl, tp,
                     exit_time, exit_price, profit_loss, risk_dollars, lot_size,
-                    ticket_id, correlation_id, exit_reason, conditions_met, error_log
+                    ticket_id, correlation_id, exit_reason, conditions_met, error_log, fees
                 ) VALUES (
                     $id, $symbol, $strategy_name, $strategy_settings, $direction,
                     $entry_time, $entry_price, $sl, $tp,
                     $exit_time, $exit_price, $profit_loss, $risk_dollars, $lot_size,
-                    $ticket_id, $correlation_id, $exit_reason, $conditions_met, $error_log
+                    $ticket_id, $correlation_id, $exit_reason, $conditions_met, $error_log, $fees
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     exit_time       = excluded.exit_time,
@@ -62,7 +107,8 @@ public sealed class TradeRepository
                     ticket_id       = excluded.ticket_id,
                     exit_reason     = excluded.exit_reason,
                     conditions_met  = excluded.conditions_met,
-                    error_log       = excluded.error_log
+                    error_log       = excluded.error_log,
+                    fees            = excluded.fees
                 """;
 
             AddTradeParams(cmd, trade);
@@ -141,6 +187,7 @@ public sealed class TradeRepository
         cmd.Parameters.Add(new DuckDBParameter("exit_reason",       (object?)t.ExitReason    ?? DBNull.Value));
         cmd.Parameters.Add(new DuckDBParameter("conditions_met",    (object?)t.ConditionsMet ?? DBNull.Value));
         cmd.Parameters.Add(new DuckDBParameter("error_log",         (object?)t.ErrorLog      ?? DBNull.Value));
+        cmd.Parameters.Add(new DuckDBParameter("fees",              (object?)t.Fees          ?? DBNull.Value));
     }
 
     private static List<TradeRecord> ReadTrades(DuckDBCommand cmd)
@@ -171,6 +218,7 @@ public sealed class TradeRepository
                 ExitReason       = ReadNullableString(r, "exit_reason"),
                 ConditionsMet    = ReadNullableString(r, "conditions_met"),
                 ErrorLog         = ReadNullableString(r, "error_log"),
+                Fees             = ReadNullableDouble(r, "fees"),
             });
         }
 

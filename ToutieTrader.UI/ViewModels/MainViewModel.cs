@@ -105,7 +105,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     // ── Computed states (step 21) ─────────────────────────────────────────────
 
-    public bool CanStartTrading  => IsPythonOk && IsMt5Ok && !IsReplayRunning && !IsLiveRunning;
+    public bool CanStartTrading  => IsPythonOk && IsMt5Ok && !IsReplayRunning && !IsLiveRunning
+                                 && SelectedStrategy != null;
     public bool CanStartReplay   => !IsLiveRunning && SelectedStrategy != null && AreReplayDatesValid;
     public bool CanPauseReplay   => IsReplayRunning;
     public bool CanResetReplay   => !IsReplayRunning;
@@ -130,6 +131,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             _selectedStrategy = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanStartReplay));
+            OnPropertyChanged(nameof(CanStartTrading));
         }
     }
 
@@ -161,6 +163,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set { _replayCapital = value; OnPropertyChanged(); }
     }
 
+    // ── Settings GLOBAUX du bot (SettingsPage — JAMAIS dans une Strategy) ────
+
+    /// <summary>% du capital risqué par trade. Appliqué à TOUTES les strategies.</summary>
+    private decimal _globalRiskPercent = 1.0m;
+    public decimal GlobalRiskPercent
+    {
+        get => _globalRiskPercent;
+        set { _globalRiskPercent = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Commission $ par lot par côté. IC Markets ≈ 3.5 USD/lot/side.</summary>
+    private decimal _commissionPerLotPerSide = 3.5m;
+    public decimal CommissionPerLotPerSide
+    {
+        get => _commissionPerLotPerSide;
+        set { _commissionPerLotPerSide = value; OnPropertyChanged(); }
+    }
+
     // ── Statut affiché ────────────────────────────────────────────────────────
 
     private string _botStatus = "Inactif";
@@ -175,6 +195,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         get => _lastAction;
         set { _lastAction = value; OnPropertyChanged(); }
+    }
+
+    private double _liveCapital;
+    public double LiveCapital
+    {
+        get => _liveCapital;
+        set { if (Math.Abs(_liveCapital - value) < 0.000001) return; _liveCapital = value; OnPropertyChanged(); }
+    }
+
+    private int _liveWins;
+    public int LiveWins
+    {
+        get => _liveWins;
+        set { if (_liveWins == value) return; _liveWins = value; OnPropertyChanged(); }
+    }
+
+    private int _liveLosses;
+    public int LiveLosses
+    {
+        get => _liveLosses;
+        set { if (_liveLosses == value) return; _liveLosses = value; OnPropertyChanged(); }
+    }
+
+    private double _liveDrawdown;
+    public double LiveDrawdown
+    {
+        get => _liveDrawdown;
+        set { if (Math.Abs(_liveDrawdown - value) < 0.000001) return; _liveDrawdown = value; OnPropertyChanged(); }
     }
 
     // ── Construction ─────────────────────────────────────────────────────────

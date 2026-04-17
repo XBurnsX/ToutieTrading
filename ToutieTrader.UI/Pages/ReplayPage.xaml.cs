@@ -25,8 +25,9 @@ namespace ToutieTrader.UI.Pages;
 /// </summary>
 public partial class ReplayPage : Page
 {
-    private readonly MainViewModel _vm;
-    private readonly ReplayService? _replay;
+    private readonly MainViewModel   _vm;
+    private readonly ReplayService?  _replay;
+    private readonly Services.AppSettings? _settings;
 
     private int _speed = 1;
     private CancellationTokenSource? _replayCts;
@@ -44,11 +45,12 @@ public partial class ReplayPage : Page
     // Trade list — bound au DataGrid
     private readonly List<TradeRecord> _trades = [];
 
-    public ReplayPage(MainViewModel vm, ReplayService? replay = null)
+    public ReplayPage(MainViewModel vm, ReplayService? replay = null, Services.AppSettings? settings = null)
     {
         InitializeComponent();
-        _vm     = vm;
-        _replay = replay;
+        _vm       = vm;
+        _replay   = replay;
+        _settings = settings;
 
         // Timer UI : vide la queue vers le chart toutes les 50ms
         _chartTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -65,12 +67,23 @@ public partial class ReplayPage : Page
         DpFrom.DateSelected += (_, d) => _vm.ReplayFrom = d;
         DpTo.DateSelected   += (_, d) => _vm.ReplayTo   = d;
 
+        // Sauvegarder le capital dès que l'utilisateur le modifie
+        TxtCapital.TextChanged += (_, _) =>
+        {
+            _vm.ReplayCapital = TxtCapital.Text;  // déclenche auto-save via App.xaml.cs
+        };
+
         // Peupler le dropdown symbole
         if (_replay != null)
         {
             foreach (var sym in _replay.AvailableSymbols)
                 CmbSymbol.Items.Add(sym);
-            if (CmbSymbol.Items.Count > 0)
+
+            // Restaurer le symbole sauvegardé, sinon premier de la liste
+            if (!string.IsNullOrEmpty(settings?.ReplaySymbol) &&
+                CmbSymbol.Items.Contains(settings.ReplaySymbol))
+                CmbSymbol.SelectedItem = settings.ReplaySymbol;
+            else if (CmbSymbol.Items.Count > 0)
                 CmbSymbol.SelectedIndex = 0;
         }
 
@@ -85,6 +98,34 @@ public partial class ReplayPage : Page
             CmbStrategy.SelectedIndex = 0;
 
         CmbStrategy.SelectionChanged += CmbStrategy_SelectionChanged;
+
+        // ── Restaurer TF + vitesse depuis les settings sauvegardés ────────────
+        if (settings != null)
+        {
+            // Timeframe
+            foreach (ComboBoxItem item in CmbTimeframe.Items)
+            {
+                if (item.Content?.ToString() == settings.ReplayTimeframe)
+                {
+                    CmbTimeframe.SelectedItem = item;
+                    break;
+                }
+            }
+
+            // Vitesse
+            _speed = settings.ReplaySpeed;
+            var speedMap = new Dictionary<int, RadioButton>
+            {
+                { 1,  SpeedX1  },
+                { 2,  SpeedX2  },
+                { 4,  SpeedX4  },
+                { 8,  SpeedX8  },
+                { 16, SpeedX16 },
+                { 32, SpeedX32 },
+            };
+            if (speedMap.TryGetValue(settings.ReplaySpeed, out var rb))
+                rb.IsChecked = true;
+        }
 
         // Suivre les changements de strategy depuis la page Strategy
         vm.PropertyChanged += (_, e) =>
@@ -151,8 +192,14 @@ public partial class ReplayPage : Page
                     CmbSymbol.Items.Clear();
                     foreach (var sym in _replay.AvailableSymbols)
                         CmbSymbol.Items.Add(sym);
-                    if (CmbSymbol.Items.Count > 0)
+
+                    // Restaurer le symbole sauvegardé, sinon premier de la liste
+                    if (!string.IsNullOrEmpty(_settings?.ReplaySymbol) &&
+                        CmbSymbol.Items.Contains(_settings.ReplaySymbol))
+                        CmbSymbol.SelectedItem = _settings.ReplaySymbol;
+                    else if (CmbSymbol.Items.Count > 0)
                         CmbSymbol.SelectedIndex = 0;
+
                     ReplayLogger.Log($"CmbSymbol populated: {CmbSymbol.Items.Count} items, SelectedIndex={CmbSymbol.SelectedIndex}");
                 }
                 else
@@ -215,6 +262,8 @@ public partial class ReplayPage : Page
 
     private void OnCandleProcessed(ToutieTrader.Core.Models.Candle candle,
                                    ToutieTrader.Core.Models.IndicatorValues? iv,
+                                   ToutieTrader.Core.Models.IndicatorValues? dailyPivotIv,
+                                   ToutieTrader.Core.Models.IndicatorValues? h1PivotIv,
                                    DateTimeOffset? futureCandleTime)
     {
         if (!_chartReady) return;
@@ -254,6 +303,7 @@ public partial class ReplayPage : Page
 
         if (iv != null)
         {
+            var dailyPivots = dailyPivotIv ?? iv;
             _chartQueue.Enqueue(JsonSerializer.Serialize(new
             {
                 type = "indicator",
@@ -268,6 +318,16 @@ public partial class ReplayPage : Page
                     chikou     = iv.Chikou,
                     futureTime = futureTs,
                     senkouA26  = iv.SenkouA26,
+                    pivotPP    = dailyPivots.PivotPP,
+                    pivotR1    = dailyPivots.PivotR1,
+                    pivotR2    = dailyPivots.PivotR2,
+                    pivotS1    = dailyPivots.PivotS1,
+                    pivotS2    = dailyPivots.PivotS2,
+                    pivotH1PP  = h1PivotIv?.PivotPP ?? 0,
+                    pivotH1R1  = h1PivotIv?.PivotR1 ?? 0,
+                    pivotH1R2  = h1PivotIv?.PivotR2 ?? 0,
+                    pivotH1S1  = h1PivotIv?.PivotS1 ?? 0,
+                    pivotH1S2  = h1PivotIv?.PivotS2 ?? 0,
                     senkouB26  = iv.SenkouB26,
                 }
             }));
@@ -372,7 +432,7 @@ public partial class ReplayPage : Page
         var markerMsg = JsonSerializer.Serialize(new
         {
             type = "marker",
-            data = new { time = ts, side, action = "exit", text = trade.ExitReason ?? "X" }
+            data = new { time = ts, side, action = "exit", text = FormatExitReason(trade.ExitReason) }
         });
 
         // Marker dessiné uniquement si le trade concerne le symbole actuellement affiché
@@ -525,14 +585,17 @@ public partial class ReplayPage : Page
 
         var cfg = new ReplayConfig
         {
-            Symbol          = symbol,
-            Timeframe       = timeframe,
-            From            = from,
-            To              = to,
-            StartingCapital = capital,
-            Speed           = _speed,
-            Strategy        = _vm.SelectedStrategy,
-            IsPaused        = () => _replayPaused,
+            Symbol                  = symbol,
+            Timeframe               = timeframe,
+            From                    = from,
+            To                      = to,
+            StartingCapital         = capital,
+            Speed                   = _speed,
+            Strategy                = _vm.SelectedStrategy,
+            IsPaused                = () => _replayPaused,
+            UseTicks                = ChkTickMode.IsChecked == true,
+            RiskPercent             = _vm.GlobalRiskPercent,
+            CommissionPerLotPerSide = _vm.CommissionPerLotPerSide,
         };
 
         // Activer le log chart_candles.log pour ce replay
@@ -552,6 +615,9 @@ public partial class ReplayPage : Page
         ResetTrendHud();
         _trades.Clear();
         GridReplayTrades.ItemsSource = null;
+
+        // Wipe DB replay (session précédente) avant de démarrer — clean slate.
+        _ = _replay.WipeReplayTradesAsync();
 
         _ = Task.Run(async () =>
             {
@@ -611,6 +677,12 @@ public partial class ReplayPage : Page
         BtnPause.Content     = "⏸ Pause";
         ProgressBar.Value    = 0;
         TxtProgressDate.Text = "—";
+
+        // Wipe la DB replay_trades + la liste UI — session terminée.
+        _ = _replay?.WipeReplayTradesAsync();
+        GridReplayTrades.ItemsSource = null;
+        _trades.Clear();
+        GridReplayTrades.ItemsSource = _trades;
     }
 
     private void BtnReset_Click(object sender, RoutedEventArgs e)
@@ -633,8 +705,30 @@ public partial class ReplayPage : Page
 
     private void GridReplayTrades_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (GridReplayTrades.SelectedItem is TradeRecord trade)
-            new TradePopupWindow(trade).Show();
+        if (GridReplayTrades.SelectedItem is not TradeRecord trade) return;
+
+        // Popup = toujours le TF de la stratégie (M1 pour ScalpingGourmand, M5 pour Scalping, M15 pour IntraDay)
+        // Le bot entre sur le TF de la stratégie — c'est ce que le popup doit montrer.
+        string tf = _vm.SelectedStrategy?.Timeframe
+            ?? (!string.IsNullOrEmpty(_replay?.LiveDisplayTimeframe)
+                ? _replay!.LiveDisplayTimeframe
+                : (CmbTimeframe.SelectedItem as ComboBoxItem)?.Content?.ToString()
+                   ?? CmbTimeframe.SelectedItem?.ToString()
+                   ?? "M1");
+
+        // Digits : on tente la meta du symbole (cache via _replay) sinon défaut 5
+        int digits = 5;
+        try
+        {
+            var meta = _replay?.TryGetCachedMeta(trade.Symbol);
+            if (meta != null) digits = meta.Digits;
+        }
+        catch { /* fallback digits=5 */ }
+
+        new TradePopupWindow(trade, _replay, tf, digits, _vm.SelectedStrategy)
+        {
+            Owner = Window.GetWindow(this),
+        }.Show();
     }
 
     // ── Date / vitesse ────────────────────────────────────────────────────────
@@ -642,7 +736,10 @@ public partial class ReplayPage : Page
     private void Speed_Checked(object sender, RoutedEventArgs e)
     {
         if (sender is RadioButton rb && rb.Tag is string tag && int.TryParse(tag, out int s))
+        {
             _speed = s;
+            if (_settings != null) { _settings.ReplaySpeed = s; _settings.Save(); }
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -681,9 +778,14 @@ public partial class ReplayPage : Page
 
     private void CmbSymbol_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_vm.IsReplayRunning || _replay == null || !_chartReady) return;
-
         string newSymbol = CmbSymbol.SelectedItem?.ToString() ?? "";
+        if (!string.IsNullOrEmpty(newSymbol) && _settings != null)
+        {
+            _settings.ReplaySymbol = newSymbol;
+            _settings.Save();
+        }
+
+        if (!_vm.IsReplayRunning || _replay == null || !_chartReady) return;
         if (string.IsNullOrEmpty(newSymbol)) return;
         if (newSymbol == _replay.LiveDisplaySymbol) return;
 
@@ -693,9 +795,14 @@ public partial class ReplayPage : Page
 
     private void CmbTimeframe_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_vm.IsReplayRunning || _replay == null || !_chartReady) return;
-
         string newTf = (CmbTimeframe.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "H1";
+        if (!string.IsNullOrEmpty(newTf) && _settings != null)
+        {
+            _settings.ReplayTimeframe = newTf;
+            _settings.Save();
+        }
+
+        if (!_vm.IsReplayRunning || _replay == null || !_chartReady) return;
         if (newTf == _replay.LiveDisplayTimeframe) return;
 
         if (!_replay.TrySwitchDisplayTf(newTf)) return;
@@ -779,7 +886,7 @@ public partial class ReplayPage : Page
                         time   = TimeZoneHelper.ToChartUnixSeconds(t.ExitTime.Value),
                         side   = t.Direction == "BUY" ? "buy" : "sell",
                         action = "exit",
-                        text   = t.ExitReason ?? "X"
+                        text   = FormatExitReason(t.ExitReason)
                     }
                 });
                 Chart.CoreWebView2.PostWebMessageAsString(exitMsg);
@@ -793,6 +900,20 @@ public partial class ReplayPage : Page
         TxtWins.Text           = "0";
         TxtLosses.Text         = "0";
         TxtDrawdown.Text       = "0 %";
+    }
+
+    private static string FormatExitReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return "X";
+        return reason switch
+        {
+            "ForceExit:Kijun reverse" => "Sortie Kijun reverse",
+            _ when reason.StartsWith("ForceExit:", StringComparison.OrdinalIgnoreCase)
+                => "Sortie forcee - " + reason["ForceExit:".Length..],
+            _ when reason.StartsWith("OptionalExit:", StringComparison.OrdinalIgnoreCase)
+                => "Sortie optionnelle - " + reason["OptionalExit:".Length..],
+            _ => reason,
+        };
     }
 
     /// <summary>

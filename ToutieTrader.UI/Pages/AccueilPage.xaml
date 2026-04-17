@@ -5,116 +5,207 @@
       Title="Accueil">
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="32,28" MaxWidth="900">
+        <Grid Margin="32,28" MaxWidth="1180">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <!-- Titre -->
-            <TextBlock Text="ACCUEIL"
-                       FontSize="11" FontWeight="SemiBold"
+            <TextBlock Grid.Row="0"
+                       Text="LIVE TRADING"
+                       FontSize="11"
+                       FontWeight="SemiBold"
                        Foreground="{StaticResource MutedBrush}"
                        Margin="0,0,0,20"/>
 
-            <!-- ── Compte MT5 ──────────────────────────────────────────────── -->
-            <Border Background="{StaticResource SurfaceBrush}"
+            <Border Grid.Row="1"
+                    Background="{StaticResource SurfaceBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1" CornerRadius="2"
-                    Padding="24,18" Margin="0,0,0,16">
+                    BorderThickness="1"
+                    CornerRadius="2"
+                    Padding="24,18"
+                    Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <!-- Balance -->
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="BALANCE"
-                                   FontSize="10"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock x:Name="TxtBalance"
-                                   Text="—"
-                                   FontSize="24" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextBrush}"/>
-                        <TextBlock x:Name="TxtCurrency"
-                                   Text=""
-                                   FontSize="11"
-                                   Foreground="{StaticResource MutedBrush}"/>
-                    </StackPanel>
-
-                    <!-- Equity -->
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="EQUITY"
-                                   FontSize="10"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock x:Name="TxtEquity"
-                                   Text="—"
-                                   FontSize="24" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextBrush}"/>
-                    </StackPanel>
-
-                    <!-- Drawdown -->
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="DRAWDOWN"
-                                   FontSize="10"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock x:Name="TxtDrawdown"
-                                   Text="—"
-                                   FontSize="24" FontWeight="SemiBold"
-                                   Foreground="{StaticResource DangerBrush}"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- ── Statut bot ──────────────────────────────────────────────── -->
-            <Border Background="{StaticResource SurfaceBrush}"
-                    BorderBrush="{StaticResource BorderBrush}"
-                    BorderThickness="1" CornerRadius="2"
-                    Padding="24,18" Margin="0,0,0,16">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1.4*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0">
-                        <TextBlock Text="STATUT BOT"
+                        <TextBlock Text="BOT"
                                    FontSize="10"
                                    Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,0,6"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse x:Name="DotBotStatus" Width="8" Height="8"
+                                   Margin="0,0,0,8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Ellipse x:Name="DotBotStatus"
+                                     Width="10"
+                                     Height="10"
                                      Fill="{StaticResource MutedBrush}"
-                                     VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,10,0"/>
                             <TextBlock x:Name="TxtBotStatus"
                                        Text="Inactif"
-                                       FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextBrush}"/>
+                                       FontSize="22"
+                                       FontWeight="SemiBold"/>
                         </StackPanel>
+                        <TextBlock x:Name="TxtLastAction"
+                                   Text="-"
+                                   FontSize="13"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
 
-                    <StackPanel Grid.Column="1">
-                        <TextBlock Text="DERNIÈRE ACTION"
-                                   FontSize="10"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,0,6"/>
-                        <TextBlock x:Name="TxtLastAction"
-                                   Text="—"
-                                   FontSize="13"
-                                   Foreground="{StaticResource TextBrush}"
-                                   TextWrapping="Wrap"/>
+                    <Grid Grid.Column="1" Margin="20,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Python" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Ellipse x:Name="DotPython" Width="8" Height="8" Fill="{StaticResource DangerBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtPython" Text="Non connecte"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="MT5" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,8"/>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Ellipse x:Name="DotMt5" Width="8" Height="8" Fill="{StaticResource DangerBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtMt5" Text="Non connecte"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Strategy" Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtStrategy" Text="-"/>
+                    </Grid>
+
+                    <StackPanel Grid.Column="2" Width="170">
+                        <Button x:Name="BtnStartLive"
+                                Content="Start live"
+                                Style="{StaticResource BtnPrimary}"
+                                Margin="0,0,0,10"
+                                Click="BtnStartLive_Click"/>
+                        <Button x:Name="BtnRefresh"
+                                Content="Refresh compte"
+                                Style="{StaticResource BtnSecondary}"
+                                Click="BtnRefresh_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Bouton refresh -->
-            <Button x:Name="BtnRefresh"
-                    Content="Rafraîchir"
-                    Style="{StaticResource BtnSecondary}"
-                    HorizontalAlignment="Left"
-                    Click="BtnRefresh_Click"/>
+            <Grid Grid.Row="2" Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-        </StackPanel>
+                <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" Padding="18" Margin="0,0,10,0">
+                    <StackPanel>
+                        <TextBlock Text="BALANCE" FontSize="10" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtBalance" Text="-" FontSize="24" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TxtCurrency" Text="" Foreground="{StaticResource MutedBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" Padding="18" Margin="0,0,10,0">
+                    <StackPanel>
+                        <TextBlock Text="EQUITY" FontSize="10" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtEquity" Text="-" FontSize="24" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" Padding="18" Margin="0,0,10,0">
+                    <StackPanel>
+                        <TextBlock Text="DRAWDOWN MT5" FontSize="10" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtDrawdown" Text="-" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource DangerBrush}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="2" Padding="18">
+                    <StackPanel>
+                        <TextBlock Text="LIVE DD" FontSize="10" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="TxtLiveDrawdown" Text="-" FontSize="24" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Row="3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.1*"/>
+                    <ColumnDefinition Width="1*"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        Padding="24,18"
+                        Margin="0,0,16,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="CONFIG LIVE" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,16"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Risk par trade" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtRisk" Text="-" Margin="0,0,0,10"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Commission" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtCommission" Text="-" Margin="0,0,0,10"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Protection" Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TxtProtection" Text="-" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Column="1"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="2"
+                        Padding="24,18">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="SESSION LIVE" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,16"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Capital suivi" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtLiveCapital" Text="-" Margin="0,0,0,10"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Wins / Losses" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,10"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtLiveRecord" Text="-" Margin="0,0,0,10"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Trade ouvert" Foreground="{StaticResource MutedBrush}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TxtOpenTrade" Text="-"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
     </ScrollViewer>
 </Page>

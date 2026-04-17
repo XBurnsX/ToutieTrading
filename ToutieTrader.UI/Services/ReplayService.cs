@@ -19,6 +19,22 @@ public sealed class ReplayConfig
     public required int Speed              { get; init; }
     public IStrategy? Strategy             { get; init; }
     public Func<bool>? IsPaused            { get; init; }
+
+    /// <summary>% du capital risqué par trade — vient du SettingsPage GLOBAL du bot.</summary>
+    public required decimal RiskPercent    { get; init; }
+
+    /// <summary>
+    /// Commission $ par lot par côté (entrée + sortie comptés séparément).
+    /// IC Markets ≈ 3.5 USD/lot/side. Vient du SettingsPage GLOBAL du bot.
+    /// </summary>
+    public required decimal CommissionPerLotPerSide { get; init; }
+
+    /// <summary>
+    /// Mode Tick : si true, le Replay charge les ticks MT5 réels pour le symbole
+    /// affiché et vérifie SL/TP tick-par-tick (précision intra-bougie).
+    /// Si false (défaut), SL/TP vérifiés sur OHLC de bougie (comportement V1).
+    /// </summary>
+    public bool UseTicks                   { get; init; }
 }
 
 /// <summary>
@@ -45,9 +61,10 @@ public sealed class ReplayService
     private readonly DuckDBReader      _reader;
     private readonly TradeRepository?  _tradeRepo;
     private readonly MT5ApiClient?     _mt5;
+    private readonly SymbolMetaCache?  _metaCache;
 
     // ── Callbacks UI ──────────────────────────────────────────────────────────
-    public event Action<Candle, IndicatorValues?, DateTimeOffset?>? OnCandleProcessed;
+    public event Action<Candle, IndicatorValues?, IndicatorValues?, IndicatorValues?, DateTimeOffset?>? OnCandleProcessed;
     public event Action<double, DateTimeOffset>?   OnProgress;
     public event Action<TradeRecord>?              OnTradeOpened;
     public event Action<TradeRecord>?              OnTradeClosed;
@@ -66,6 +83,11 @@ public sealed class ReplayService
     public bool   IsRunning        { get; private set; }
     public List<string> AvailableSymbols { get; private set; } = [];
 
+    // Streaming ticks : protège les List<Tick> pendant que le BG append des jours
+    private readonly object _ticksLock = new();
+    // Combien de jours de ticks ont été chargés en mémoire (0 = rien, 1 = day 1 OK, etc.)
+    private volatile int _tickLoadedDayCount;
+
     // Display state — accessible depuis l'UI pendant le replay
     private volatile string _liveDisplayTf = "";
     private volatile string _liveSymbol    = "";
@@ -83,16 +105,38 @@ public sealed class ReplayService
     /// <summary>TF actuellement affiché sur le chart. Thread-safe.</summary>
     public string LiveDisplayTimeframe => _liveDisplayTf;
 
+    /// <summary>
+    /// Expose le DuckDBReader (lecture seule) pour la popup détail de trade
+    /// qui doit charger les bougies autour de l'entrée/sortie pour les afficher.
+    /// </summary>
+    public DuckDBReader Reader => _reader;
+
+    /// <summary>
+    /// Lookup synchrone d'une SymbolMeta déjà cachée (null sinon).
+    /// Utilisé par la popup trade pour connaître Digits/etc. sans appel réseau.
+    /// </summary>
+    public SymbolMeta? TryGetCachedMeta(string symbol)
+        => _metaCache?.TryGetCached(symbol);
+
     public ReplayService(
         DuckDBReader reader,
         TradeRepository? tradeRepo = null,
-        MT5ApiClient? mt5 = null)
+        MT5ApiClient? mt5 = null,
+        SymbolMetaCache? metaCache = null)
     {
         _reader    = reader;
         _tradeRepo = tradeRepo;
         _mt5       = mt5;
+        _metaCache = metaCache ?? (mt5 != null ? new SymbolMetaCache(mt5) : null);
         RefreshSymbols();
     }
+
+    /// <summary>
+    /// Wipe la DB replay_trades.db. Appelé au stop replay et à la fermeture
+    /// de l'app — la DB replay est éphémère par design.
+    /// </summary>
+    public Task WipeReplayTradesAsync()
+        => _tradeRepo?.WipeReplayAsync() ?? Task.CompletedTask;
 
     public void RefreshSymbols()
     {
@@ -218,6 +262,17 @@ public sealed class ReplayService
         var bCloudCurrent = new List<object>();
         var bCloudFuture  = new List<object>();
         var bConditions   = new List<object>();
+        var bPivotPP      = new List<object>();
+        var bPivotR1      = new List<object>();
+        var bPivotR2      = new List<object>();
+        var bPivotS1      = new List<object>();
+        var bPivotS2      = new List<object>();
+        var bPivotH1PP    = new List<object>();
+        var bPivotH1R1    = new List<object>();
+        var bPivotH1R2    = new List<object>();
+        var bPivotH1S1    = new List<object>();
+        var bPivotH1S2    = new List<object>();
+        bool showH1Pivots = ShouldShowH1Pivots(strategy);
 
         foreach (var candle in allCandles)
         {
@@ -269,6 +324,17 @@ public sealed class ReplayService
                     bCloudFuture.Add(new { time = futureTs, senkouA = iv.SenkouA26, senkouB = iv.SenkouB26 });
                 }
 
+                var dailyPivotIv = BuildPivotIndicators(snapshot, symbol, "D", candle.Time);
+                if (dailyPivotIv is { PivotPP: > 0 })
+                    AddPivotPoint(ts, dailyPivotIv, bPivotPP, bPivotR1, bPivotR2, bPivotS1, bPivotS2);
+
+                if (showH1Pivots)
+                {
+                    var h1PivotIv = BuildPivotIndicators(snapshot, symbol, "H1", candle.Time);
+                    if (h1PivotIv is { PivotPP: > 0 })
+                        AddPivotPoint(ts, h1PivotIv, bPivotH1PP, bPivotH1R1, bPivotH1R2, bPivotH1S1, bPivotH1S2);
+                }
+
                 if (strategy != null)
                 {
                     var chartTrend = trendEng.GetTrend(symbol, tf)
@@ -296,6 +362,16 @@ public sealed class ReplayService
             cloudCurrent = bCloudCurrent,
             cloudFuture  = bCloudFuture,
             conditions   = bConditions,
+            pivotPP      = bPivotPP,
+            pivotR1      = bPivotR1,
+            pivotR2      = bPivotR2,
+            pivotS1      = bPivotS1,
+            pivotS2      = bPivotS2,
+            pivotH1PP    = bPivotH1PP,
+            pivotH1R1    = bPivotH1R1,
+            pivotH1R2    = bPivotH1R2,
+            pivotH1S1    = bPivotH1S1,
+            pivotH1S2    = bPivotH1S2,
         });
     }
 
@@ -308,7 +384,19 @@ public sealed class ReplayService
         IsRunning = true;
 
         // ── Lazy fetch MT5 → DuckDB ───────────────────────────────────────────
-        if (_mt5 != null)
+        // FAST PATH : si la DB locale couvre déjà [From, To] pour CE symbol sur les TFs
+        // que la Strategy utilise vraiment (RequiredTimeframes, pas AllTimeframes), on
+        // skip complètement l'appel MT5 (qui itère 36 symbols × 6 TFs et peut prendre
+        // plusieurs minutes même quand tout est en cache).
+        var requiredTfs = cfg.Strategy?.RequiredTimeframes is { Count: > 0 } reqs
+            ? reqs
+            : new List<string> { cfg.Timeframe };
+        if (_reader.HasFullCoverage(cfg.Symbol, requiredTfs, cfg.From, cfg.To))
+        {
+            ReplayLogger.Log($"FAST PATH: DB locale couvre déjà {cfg.Symbol} × [{string.Join(",", requiredTfs)}] sur la range — skip ensure_candles_range");
+            OnLoadingStatus?.Invoke("Données déjà en cache local — démarrage instantané.");
+        }
+        else if (_mt5 != null)
         {
             try
             {
@@ -337,6 +425,11 @@ public sealed class ReplayService
             ReplayLogger.Log("_mt5 is null — skipping lazy fetch");
         }
 
+        // ── Mode Tick : streaming load (jour 1 sync, reste en background) ─────
+        // Voir bloc plus bas après allBySymbolAndTf — on a besoin de allTicksBySymbol
+        // pour passer en référence au BG task. Le fetch + load du jour 1 est fait
+        // juste après LoadAllSymbolsAllTfsAsync.
+
         OnLoadingStatus?.Invoke("Chargement DuckDB…");
 
         // Charger TOUS les symboles × TOUS les TFs en parallèle
@@ -364,6 +457,27 @@ public sealed class ReplayService
             return;
         }
 
+        // ── Pré-charger SymbolMeta pour tous les symboles tradés ──
+        // Indispensable : RiskEngine et ExecutionManager les lisent SYNCHRONEMENT
+        // (lookup cache TryGetCached). Sans preload, lot=0 et P&L=0.
+        if (_metaCache != null)
+        {
+            OnLoadingStatus?.Invoke("Chargement métadonnées MT5…");
+            try
+            {
+                await _metaCache.PreloadAsync(allBySymbolAndTf.Keys, ct).ConfigureAwait(false);
+                ReplayLogger.Log($"SymbolMeta preloaded for {allBySymbolAndTf.Count} symbols");
+            }
+            catch (Exception ex)
+            {
+                ReplayLogger.LogException("SymbolMeta preload", ex);
+            }
+        }
+        else
+        {
+            ReplayLogger.Log("WARNING: SymbolMetaCache is NULL — lot sizing & P&L seront à 0 (pas de MT5).");
+        }
+
         ReplayLogger.Log("All data loaded → starting replay loop");
         OnLoadingStatus?.Invoke("");   // Clear le message → replay démarre
 
@@ -374,6 +488,54 @@ public sealed class ReplayService
             .ToList();
 
         if (allCandles.Count == 0) { IsRunning = false; return; }
+
+        // ── Mode Tick : streaming jour-par-jour ────────────────────────────────
+        // Jour 1 sync (replay démarre vite) ; jours 2..N en background pendant que
+        // le replay joue. Le replay attend si une bougie dépasse l'horizon chargé.
+        var allTicksBySymbol      = new Dictionary<string, List<Tick>>(StringComparer.OrdinalIgnoreCase);
+        var tickCursorBySymbol    = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var displayCursorBySymbol = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _tickLoadedDayCount       = 0;
+
+        int totalTickDays = 0;
+        if (cfg.UseTicks)
+        {
+            var tickSymbols  = AvailableSymbols.ToArray();
+            totalTickDays    = (int)Math.Ceiling((cfg.To - cfg.From).TotalDays);
+            if (totalTickDays < 1) totalTickDays = 1;
+
+            ReplayLogger.Log($"Mode Tick streaming: {tickSymbols.Length} symbols × {totalTickDays} days");
+
+            // Jour 1 sync
+            await LoadTicksForDayAsync(0, cfg, tickSymbols,
+                allTicksBySymbol, tickCursorBySymbol, displayCursorBySymbol, ct)
+                .ConfigureAwait(false);
+
+            // Jours 2..N en background — fire-and-forget (catch interne)
+            if (totalTickDays > 1)
+            {
+                var bgSymbols = tickSymbols;
+                var bgCfg     = cfg;
+                _ = Task.Run(async () =>
+                {
+                    for (int day = 1; day < totalTickDays; day++)
+                    {
+                        if (ct.IsCancellationRequested) break;
+                        try
+                        {
+                            await LoadTicksForDayAsync(day, bgCfg, bgSymbols,
+                                allTicksBySymbol, tickCursorBySymbol, displayCursorBySymbol, ct)
+                                .ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            ReplayLogger.LogException($"BG LoadTicksForDay({day})", ex);
+                        }
+                    }
+                    ReplayLogger.Log($"BG tick streaming complete: {_tickLoadedDayCount}/{totalTickDays} days");
+                }, ct);
+            }
+        }
 
         // ── Init display state ────────────────────────────────────────────────
         _liveDisplayTf        = cfg.Timeframe;
@@ -388,6 +550,7 @@ public sealed class ReplayService
         long totalRange = Math.Max(1, (cfg.To - cfg.From).Ticks);
         long lastTrendEmitTicks = 0;
         long lastProgressEmitTicks = 0;
+        bool showH1Pivots = ShouldShowH1Pivots(cfg.Strategy);
 
         var engine   = new IndicatorEngine(new EventBus());
         var swings   = new SwingPointEngine();
@@ -398,6 +561,8 @@ public sealed class ReplayService
         int    wins          = 0;
         int    losses        = 0;
         double dailyDrawdown = 0;
+        DateOnly? currentRiskDay = null;
+        double dayPeak = cfg.StartingCapital;
 
         var replayBus = new EventBus();
         var riskEng   = new RiskEngine();
@@ -415,6 +580,7 @@ public sealed class ReplayService
                 double pl = record.ProfitLoss ?? 0;
                 capital  += pl;
                 if (capital > peak) peak = capital;
+                if (capital > dayPeak) dayPeak = capital;
                 if (pl >= 0) wins++; else losses++;
                 OnTradeClosed?.Invoke(record);
                 if (_tradeRepo != null)
@@ -423,8 +589,15 @@ public sealed class ReplayService
             return Task.CompletedTask;
         };
 
-        var execMgr  = new ExecutionManager(replayBus, simExec, riskEng, saveTrade);
-        var tradeMgr = new TradeManager(replayBus, engine, trendEng, execMgr);
+        // Provider de métadonnées MT5 (lazy-cache via SymbolMetaCache, lookup synchrone après preload)
+        Func<string, SymbolMeta?> metaProvider = sym => _metaCache?.TryGetCached(sym);
+
+        var execMgr  = new ExecutionManager(
+            replayBus, simExec, riskEng, saveTrade,
+            metaProvider, (double)cfg.CommissionPerLotPerSide);
+        var tradeMgr = new TradeManager(
+            replayBus, engine, trendEng, execMgr, riskEng,
+            metaProvider, (double)cfg.CommissionPerLotPerSide);
 
         try
         {
@@ -447,7 +620,10 @@ public sealed class ReplayService
                 string displayTf  = _liveDisplayTf;
                 string displaySym = _liveSymbol;
                 bool isDisplay    = candle.Symbol == displaySym && candle.Timeframe == displayTf;
-                bool isStrategyTf = candle.Timeframe == cfg.Timeframe;
+                // TF d'évaluation = TF propre de la stratégie (M15 pour IntraDay, etc.)
+                // PAS le TF d'affichage sélectionné dans le dropdown UI.
+                string stratTf    = cfg.Strategy?.Timeframe ?? cfg.Timeframe;
+                bool isStrategyTf = candle.Timeframe == stratTf;
 
                 // ── Warmup : nourrir les engines + envoyer les display au chart ──
                 // Les bougies warmup du (symbol, TF) affiché sont envoyées au chart
@@ -458,13 +634,46 @@ public sealed class ReplayService
                     if (isDisplay)
                     {
                         var warmIv = engine.GetIndicators(candle.Symbol, candle.Timeframe);
+                        var warmDailyPivotIv = BuildPivotIndicators(allBySymbolAndTf, candle.Symbol, "D", candle.Time);
+                        var warmH1PivotIv = showH1Pivots
+                            ? BuildPivotIndicators(allBySymbolAndTf, candle.Symbol, "H1", candle.Time)
+                            : null;
                         var warmFt = ComputeFutureTime(allBySymbolAndTf, candle, curIdx);
-                        OnCandleProcessed?.Invoke(candle, warmIv, warmFt);
+                        OnCandleProcessed?.Invoke(candle, warmIv, warmDailyPivotIv, warmH1PivotIv, warmFt);
                     }
                     continue;
                 }
 
                 Interlocked.Exchange(ref _currentReplayTimestamp, candle.Time.ToUnixTimeSeconds());
+
+                // ── Mode Tick streaming : attendre que le BG ait chargé ce jour ──
+                var riskDay = DateOnly.FromDateTime(candle.Time.DateTime);
+                if (currentRiskDay != riskDay)
+                {
+                    currentRiskDay = riskDay;
+                    dayPeak = capital;
+                }
+                if (capital > dayPeak) dayPeak = capital;
+                dailyDrawdown = dayPeak > 0
+                    ? Math.Max(0, (dayPeak - capital) / dayPeak * 100.0)
+                    : 0;
+
+                if (cfg.UseTicks && totalTickDays > 0)
+                {
+                    int neededDay = (int)Math.Floor((candle.Time - cfg.From).TotalDays) + 1;
+                    if (neededDay > totalTickDays) neededDay = totalTickDays;
+                    bool warned = false;
+                    while (_tickLoadedDayCount < neededDay && !ct.IsCancellationRequested)
+                    {
+                        if (!warned)
+                        {
+                            OnLoadingStatus?.Invoke($"Attente ticks jour {neededDay}/{totalTickDays} (chargé {_tickLoadedDayCount})…");
+                            warned = true;
+                        }
+                        await Task.Delay(100, ct).ConfigureAwait(false);
+                    }
+                    if (warned) OnLoadingStatus?.Invoke("");
+                }
 
                 var iv = engine.GetIndicators(candle.Symbol, candle.Timeframe);
 
@@ -473,16 +682,127 @@ public sealed class ReplayService
                 // Elle peut ouvrir/fermer des trades sur n'importe quel symbole.
                 if (isStrategyTf && cfg.Strategy != null && iv != null)
                 {
-                    await EvaluateAsync(candle, iv, cfg.Strategy, engine, trendEng,
-                                        tradeMgr, riskEng, capital, dailyDrawdown,
-                                        ct, emitConditions: isDisplay);
+                    // Mode Tick : slice les ticks pour cette bougie (par symbole)
+                    // Lock car le BG task peut faire AddRange sur la List<Tick> en parallèle.
+                    IReadOnlyList<Tick>? candleTicks = null;
+                    if (cfg.UseTicks)
+                    {
+                        lock (_ticksLock)
+                        {
+                            if (allTicksBySymbol.TryGetValue(candle.Symbol, out var symTicks))
+                            {
+                                var candleEnd = candle.Time.AddSeconds(TfSeconds(candle.Timeframe));
+                                int cur = tickCursorBySymbol[candle.Symbol];
+                                while (cur < symTicks.Count && symTicks[cur].Time < candle.Time)
+                                    cur++;
+                                tickCursorBySymbol[candle.Symbol] = cur;
+                                var slice = new List<Tick>();
+                                int scan  = cur;
+                                while (scan < symTicks.Count && symTicks[scan].Time < candleEnd)
+                                {
+                                    slice.Add(symTicks[scan]);
+                                    scan++;
+                                }
+                                candleTicks = slice;
+                            }
+                        }
+                    }
+
+                    // Délègue à StrategyEvaluator — source unique, identique Live
+                    // condCb : on émet les conditions sur le TF STRATÉGIE du symbole affiché
+                    // (pas le TF display — la stratégie tourne sur M1, pas H1 ou M15)
+                    bool isCondDisplay = candle.Symbol == displaySym;
+                    Action<long, List<(string, bool)>, List<(string, bool)>>? condCb = isCondDisplay
+                        ? (ts, l, s) => OnConditionsEvaluated?.Invoke(ts, l, s)
+                        : null;
+
+                    await StrategyEvaluator.EvaluateAsync(
+                        candle, iv, cfg.Strategy, engine, trendEng,
+                        tradeMgr, riskEng, capital, dailyDrawdown,
+                        cfg.RiskPercent, metaProvider, ct,
+                        conditionsCallback: condCb,
+                        ticks: candleTicks);
                 }
 
                 // ── Envoi au chart : bougies du symbole+TF display ─────────────
+                bool tickAnimated = false;
                 if (isDisplay)
                 {
                     var ft = ComputeFutureTime(allBySymbolAndTf, candle, curIdx);
-                    OnCandleProcessed?.Invoke(candle, iv, ft);
+                    var dailyPivotIv = BuildPivotIndicators(allBySymbolAndTf, candle.Symbol, "D", candle.Time);
+                    var h1PivotIv = showH1Pivots
+                        ? BuildPivotIndicators(allBySymbolAndTf, candle.Symbol, "H1", candle.Time)
+                        : null;
+
+                    // Mode Tick : animer la bougie tick-par-tick (OHLC progressifs)
+                    // Snapshot sous lock (le BG task peut AddRange en parallèle), puis
+                    // on itère hors lock car y'a des await Task.Delay.
+                    if (cfg.UseTicks)
+                    {
+                        List<Tick>? snapshot = null;
+                        lock (_ticksLock)
+                        {
+                            if (allTicksBySymbol.TryGetValue(candle.Symbol, out var dispTicks))
+                            {
+                                var candleEnd = candle.Time.AddSeconds(TfSeconds(candle.Timeframe));
+                                int dispCur = displayCursorBySymbol[candle.Symbol];
+                                while (dispCur < dispTicks.Count && dispTicks[dispCur].Time < candle.Time)
+                                    dispCur++;
+                                displayCursorBySymbol[candle.Symbol] = dispCur;
+                                int sliceStart = dispCur;
+                                int sliceEnd   = sliceStart;
+                                while (sliceEnd < dispTicks.Count && dispTicks[sliceEnd].Time < candleEnd)
+                                    sliceEnd++;
+                                if (sliceEnd > sliceStart)
+                                {
+                                    snapshot = new List<Tick>(sliceEnd - sliceStart);
+                                    for (int i = sliceStart; i < sliceEnd; i++)
+                                        snapshot.Add(dispTicks[i]);
+                                }
+                            }
+                        }
+
+                        if (snapshot is { Count: > 0 })
+                        {
+                            double tickOpen  = snapshot[0].Bid;
+                            double tickHigh  = tickOpen;
+                            double tickLow   = tickOpen;
+                            double tickClose = tickOpen;
+                            int    perTickDelay = Math.Max(0, delayMs / snapshot.Count);
+
+                            for (int i = 0; i < snapshot.Count; i++)
+                            {
+                                if (ct.IsCancellationRequested) break;
+
+                                var t = snapshot[i];
+                                if (t.Bid > tickHigh) tickHigh = t.Bid;
+                                if (t.Bid < tickLow)  tickLow  = t.Bid;
+                                tickClose = t.Bid;
+
+                                var partial = new Candle
+                                {
+                                    Symbol    = candle.Symbol,
+                                    Timeframe = candle.Timeframe,
+                                    Time      = candle.Time,
+                                    Open      = tickOpen,
+                                    High      = tickHigh,
+                                    Low       = tickLow,
+                                    Close     = tickClose,
+                                    Volume    = candle.Volume,
+                                };
+                                OnCandleProcessed?.Invoke(partial, iv, dailyPivotIv, h1PivotIv, ft);
+
+                                if (perTickDelay > 0)
+                                    await Task.Delay(perTickDelay, ct).ConfigureAwait(false);
+                            }
+                            // Bougie finale (vraies valeurs OHLC du DB)
+                            OnCandleProcessed?.Invoke(candle, iv, dailyPivotIv, h1PivotIv, ft);
+                            tickAnimated = true;
+                        }
+                    }
+
+                    if (!tickAnimated)
+                        OnCandleProcessed?.Invoke(candle, iv, dailyPivotIv, h1PivotIv, ft);
 
                     // HUD trends — throttle 250ms
                     long nowTicks = DateTime.UtcNow.Ticks;
@@ -519,7 +839,8 @@ public sealed class ReplayService
                 // ── Delay visuel : seulement sur la bougie display ────────────
                 // Le rythme visuel suit _liveDisplayTf (qui peut changer dynamiquement).
                 // Les bougies non-display passent à pleine vitesse (alimentation des engines).
-                if (isDisplay && delayMs > 0)
+                // En Mode Tick, le delay est déjà appliqué par tick (perTickDelay) → skip.
+                if (isDisplay && delayMs > 0 && !tickAnimated)
                     await Task.Delay(delayMs, ct).ConfigureAwait(false);
             }
 
@@ -557,6 +878,146 @@ public sealed class ReplayService
         if (!tfMap.TryGetValue(candle.Timeframe, out var lst)) return null;
         int target = currentIdx + 26;
         return target < lst.Count ? lst[target].Time : null;
+    }
+
+    private static bool ShouldShowH1Pivots(IStrategy? strategy)
+        => strategy?.Settings.TryGetValue("Mode", out var mode) == true &&
+           string.Equals(mode?.ToString(), "ScalpingGourmand", StringComparison.OrdinalIgnoreCase);
+
+    private static IndicatorValues? BuildPivotIndicators(
+        Dictionary<string, Dictionary<string, List<Candle>>> all,
+        string symbol,
+        string pivotTf,
+        DateTimeOffset time)
+    {
+        if (!all.TryGetValue(symbol, out var tfMap)) return null;
+        if (!tfMap.TryGetValue(pivotTf, out var candles) || candles.Count == 0) return null;
+
+        var source = FindPreviousCandle(candles, time);
+        if (source is null) return null;
+
+        double pp = (source.High + source.Low + source.Close) / 3.0;
+        if (pp <= 0) return null;
+
+        double range = source.High - source.Low;
+        return new IndicatorValues
+        {
+            PivotPP = pp,
+            PivotR1 = 2.0 * pp - source.Low,
+            PivotR2 = pp + range,
+            PivotS1 = 2.0 * pp - source.High,
+            PivotS2 = pp - range,
+        };
+    }
+
+    private static Candle? FindPreviousCandle(IReadOnlyList<Candle> candles, DateTimeOffset time)
+    {
+        int lo = 0;
+        int hi = candles.Count - 1;
+        int best = -1;
+
+        while (lo <= hi)
+        {
+            int mid = lo + ((hi - lo) / 2);
+            if (candles[mid].Time < time)
+            {
+                best = mid;
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+
+        return best >= 0 ? candles[best] : null;
+    }
+
+    private static void AddPivotPoint(
+        long ts,
+        IndicatorValues pivot,
+        List<object> pp,
+        List<object> r1,
+        List<object> r2,
+        List<object> s1,
+        List<object> s2)
+    {
+        pp.Add(new { time = ts, value = pivot.PivotPP });
+        r1.Add(new { time = ts, value = pivot.PivotR1 });
+        r2.Add(new { time = ts, value = pivot.PivotR2 });
+        s1.Add(new { time = ts, value = pivot.PivotS1 });
+        s2.Add(new { time = ts, value = pivot.PivotS2 });
+    }
+
+    /// <summary>
+    /// Charge les ticks d'UN jour pour tous les symbols (Python fetch + DuckDB read +
+    /// merge dans la mémoire partagée sous _ticksLock). Incrémente _tickLoadedDayCount
+    /// quand le jour est OK. Utilisé en sync pour day 0 et en background pour day 1..N.
+    /// </summary>
+    private async Task LoadTicksForDayAsync(
+        int dayIndex,
+        ReplayConfig cfg,
+        string[] symbols,
+        Dictionary<string, List<Tick>> allTicksBySymbol,
+        Dictionary<string, int>        tickCursorBySymbol,
+        Dictionary<string, int>        displayCursorBySymbol,
+        CancellationToken ct)
+    {
+        var dayFrom = cfg.From.AddDays(dayIndex);
+        var dayTo   = dayFrom.AddDays(1);
+        if (dayTo > cfg.To) dayTo = cfg.To;
+        if (dayFrom >= cfg.To) { _tickLoadedDayCount = dayIndex + 1; return; }
+
+        // 1. Python : ensure_ticks_range pour ce jour (idempotent — cache hit si déjà fait)
+        if (_mt5 != null)
+        {
+            try
+            {
+                var r = await _mt5.EnsureTicksRangeAsync(dayFrom, dayTo, symbols, ct)
+                    .ConfigureAwait(false);
+                ReplayLogger.Log($"Ticks day {dayIndex+1}: {r.TotalInserted:N0} new, {r.TotalCached:N0} cached, {r.ElapsedSec:F1}s");
+            }
+            catch (Exception ex)
+            {
+                ReplayLogger.LogException($"EnsureTicksRangeAsync(day {dayIndex+1})", ex);
+                // On continue — peut-être que des ticks sont déjà en DB
+            }
+        }
+
+        // 2. DuckDB : lire ce jour pour tous les symbols et append en mémoire
+        long appended = 0;
+        foreach (var sym in symbols)
+        {
+            if (ct.IsCancellationRequested) return;
+            try
+            {
+                var t = _reader.GetTicksInRange(sym, dayFrom, dayTo);
+                if (t.Count == 0) continue;
+
+                lock (_ticksLock)
+                {
+                    if (!allTicksBySymbol.TryGetValue(sym, out var list))
+                    {
+                        allTicksBySymbol[sym]      = t;
+                        tickCursorBySymbol[sym]    = 0;
+                        displayCursorBySymbol[sym] = 0;
+                    }
+                    else
+                    {
+                        list.AddRange(t);
+                    }
+                }
+                appended += t.Count;
+            }
+            catch (Exception ex)
+            {
+                ReplayLogger.LogException($"GetTicksInRange({sym}, day {dayIndex+1})", ex);
+            }
+        }
+
+        // 3. Marquer ce jour comme chargé (le replay loop débloquera la wait)
+        _tickLoadedDayCount = dayIndex + 1;
+        ReplayLogger.Log($"Day {dayIndex+1} loaded in memory: +{appended:N0} ticks (horizon={_tickLoadedDayCount})");
     }
 
     /// <summary>Charge tous les symboles × tous les TFs standards en parallèle.</summary>
@@ -624,109 +1085,7 @@ public sealed class ReplayService
     };
 
     // ── Strategy Evaluation ───────────────────────────────────────────────────
-
-    /// <summary>
-    /// Évalue les conditions d'entrée et délègue toute l'exécution au même moteur que Live.
-    /// TradeManager gère : pending signals → Open bougie suivante, SL/TP, ForceExit.
-    /// ExecutionManager gère : SimulatedOrderExecutor (IsReplay=true) → fills simulés.
-    /// </summary>
-    private async Task EvaluateAsync(
-        Candle candle, IndicatorValues iv, IStrategy strategy,
-        IndicatorEngine engine, TrendEngine trendEng,
-        TradeManager tradeMgr, RiskEngine riskEng,
-        double capital, double dailyDrawdown,
-        CancellationToken ct, bool emitConditions)
-    {
-        var chartTrend = trendEng.GetTrend(candle.Symbol, candle.Timeframe)
-            ?? new TrendState { Timeframe = candle.Timeframe, Trend = TrendDirection.Range };
-
-        // Évaluer conditions — pour l'affichage HUD ET la détection de signal
-        var longResults  = strategy.LongConditions. Select(c => {
-            var condTf = string.IsNullOrEmpty(c.Timeframe) ? candle.Timeframe : c.Timeframe;
-            var condIv = engine.GetIndicators(candle.Symbol, condTf) ?? iv;
-            var condTr = trendEng.GetTrend(candle.Symbol, condTf) ?? chartTrend;
-            return (c.Label, c.Expression(condIv, condTr));
-        }).ToList();
-        var shortResults = strategy.ShortConditions.Select(c => {
-            var condTf = string.IsNullOrEmpty(c.Timeframe) ? candle.Timeframe : c.Timeframe;
-            var condIv = engine.GetIndicators(candle.Symbol, condTf) ?? iv;
-            var condTr = trendEng.GetTrend(candle.Symbol, condTf) ?? chartTrend;
-            return (c.Label, c.Expression(condIv, condTr));
-        }).ToList();
-
-        // Émission conditions au tooltip chart (bougie affichée seulement)
-        if (emitConditions)
-            OnConditionsEvaluated?.Invoke(TimeZoneHelper.ToChartUnixSeconds(candle.Time), longResults, shortResults);
-
-        // Détection signal → QueueSignal → TradeManager (même chemin que Live)
-        string?      direction = null;
-        List<string> metLabels = [];
-
-        if      (longResults .Count > 0 && longResults .All(r => r.Item2))
-            { direction = "BUY";  metLabels = longResults .Select(r => r.Label).ToList(); }
-        else if (shortResults.Count > 0 && shortResults.All(r => r.Item2))
-            { direction = "SELL"; metLabels = shortResults.Select(r => r.Label).ToList(); }
-
-        if (direction != null)
-        {
-            double pipSize = candle.Symbol.Contains("JPY") ? 0.01 : 0.0001;
-
-            double sl = strategy.StopLoss.Type == StopLossType.Custom
-                ? strategy.StopLoss.CustomCompute?.Invoke(iv, direction) ?? iv.Close
-                : CalcStdSl(strategy.StopLoss, direction, iv, pipSize);
-
-            double tp = strategy.TakeProfit.Type == TakeProfitType.Custom
-                ? strategy.TakeProfit.CustomCompute?.Invoke(iv, direction, candle.Close, sl) ?? candle.Close
-                : CalcStdTp(strategy.TakeProfit, direction, candle.Close, sl);
-
-            var signal = new TradeSignal
-            {
-                Symbol        = candle.Symbol,
-                Direction     = direction,
-                EntryPrice    = candle.Close,   // écrasé par Open bougie suivante dans TradeManager
-                Sl            = sl,
-                Tp            = tp,
-                CorrelationId = Guid.NewGuid().ToString(),
-                ConditionsMet = metLabels,
-            };
-
-            int openCount = tradeMgr.GetOpenTrades().Count;
-            var risk = riskEng.Calculate(
-                capital, (double)strategy.RiskPercent,
-                candle.Close, sl, candle.Symbol, strategy,
-                openCount, dailyDrawdown);
-
-            if (risk != null)
-            {
-                signal = signal with { LotSize = risk.LotSize };
-                tradeMgr.QueueSignal(signal, strategy);
-            }
-        }
-
-        // TradeManager : exécute signaux en attente (Open bougie suivante) + SL/TP/ForceExit
-        await tradeMgr.ProcessCandleAsync(candle, ct);
-    }
-
-    // ── SL/TP Standards ───────────────────────────────────────────────────────
-
-    private static double CalcStdSl(StopLossRule r, string dir, IndicatorValues iv, double pip)
-    {
-        double buf = r.BufferPips * pip;
-        return r.Type switch
-        {
-            StopLossType.BelowCloud => Math.Min(iv.SenkouA, iv.SenkouB) - buf,
-            StopLossType.AboveCloud => Math.Max(iv.SenkouA, iv.SenkouB) + buf,
-            StopLossType.Fixed      => dir == "BUY" ? iv.Close - r.BufferPips * pip
-                                                    : iv.Close + r.BufferPips * pip,
-            _ => dir == "BUY" ? iv.Low - buf : iv.High + buf,
-        };
-    }
-
-    private static double CalcStdTp(TakeProfitRule r, string dir, double entry, double sl)
-    {
-        double dist = Math.Abs(entry - sl);
-        return dir == "BUY" ? entry + dist * r.Ratio : entry - dist * r.Ratio;
-    }
+    // Déléguée à StrategyEvaluator (ToutieTrader.Core.Engine) — source unique Live + Replay.
 
     // ── Interne ───────────────────────────────────────────────────────────────
 

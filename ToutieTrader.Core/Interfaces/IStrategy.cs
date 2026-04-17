@@ -11,7 +11,7 @@ namespace ToutieTrader.Core.Interfaces;
 ///   - Une Strategy NE PEUT PAS demander des indicateurs non fournis par IndicatorEngine.
 ///   - Une Strategy NE PEUT PAS modifier la logique TrendEngine (Bull/Bear/Range).
 ///   - Settings types valides : bool | decimal | int uniquement.
-///   - Settings["RiskPercent"] surcharge RiskPercent si présent.
+///   - Le % de risk est UN setting GLOBAL du bot (SettingsPage) — JAMAIS dans une Strategy.
 /// </summary>
 public interface IStrategy
 {
@@ -33,12 +33,13 @@ public interface IStrategy
     List<string> Indicators { get; }
 
     // ── Risk ──────────────────────────────────────────────────────────────────
-
-    /// <summary>% du capital risqué par trade. Surchargeable par Settings["RiskPercent"].</summary>
-    decimal RiskPercent { get; }
+    // Le % de risk est UN setting GLOBAL (SettingsPage), jamais ici.
 
     /// <summary>Nombre max de trades ouverts simultanément toutes paires confondues.</summary>
     int MaxSimultaneousTrades { get; }
+
+    /// <summary>Nombre max d'entrees par symbole par journee. -1 = illimite.</summary>
+    int MaxTradesPerSymbolPerDay => -1;
 
     /// <summary>Le bot stoppe si le drawdown dépasse ce % dans la journée.</summary>
     decimal MaxDailyDrawdownPercent { get; }
@@ -73,7 +74,7 @@ public interface IStrategy
     /// Options configurables depuis la page Strategy de l'UI.
     /// Types valides : bool | decimal | int | string.
     /// Si string → déclarer les options valides dans SettingChoices pour obtenir un dropdown.
-    /// Settings["RiskPercent"] surcharge RiskPercent si présent.
+    /// Le % de risk N'EST PAS un setting de strategy — c'est un setting global du bot.
     /// </summary>
     Dictionary<string, object> Settings { get; }
 

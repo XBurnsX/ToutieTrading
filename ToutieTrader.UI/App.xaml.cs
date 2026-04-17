@@ -13,14 +13,43 @@ namespace ToutieTrader.UI;
 public partial class App : Application
 {
     private MT5ApiClient? _mt5;
+    private TradeRepository? _tradeRepo;
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
         // ── MT5 Client ────────────────────────────────────────────────────────
         _mt5 = new MT5ApiClient("http://127.0.0.1:8000");
 
+        // ── Settings persistants ─────────────────────────────────────────────
+        var settings = AppSettings.Load();
+
         // ── ViewModel ─────────────────────────────────────────────────────────
         var vm = new MainViewModel(_mt5);
+
+        // Appliquer les paramètres sauvegardés au ViewModel
+        vm.ReplayFrom              = settings.ReplayFrom;
+        vm.ReplayTo                = settings.ReplayTo;
+        vm.ReplayCapital           = settings.ReplayCapital;
+        vm.GlobalRiskPercent       = settings.GlobalRiskPercent;
+        vm.CommissionPerLotPerSide = settings.CommissionPerLotPerSide;
+
+        // Auto-sauvegarder les propriétés VM à chaque changement
+        vm.PropertyChanged += (_, pe) =>
+        {
+            switch (pe.PropertyName)
+            {
+                case nameof(MainViewModel.ReplayFrom):
+                    settings.ReplayFrom = vm.ReplayFrom; settings.Save(); break;
+                case nameof(MainViewModel.ReplayTo):
+                    settings.ReplayTo = vm.ReplayTo; settings.Save(); break;
+                case nameof(MainViewModel.ReplayCapital):
+                    settings.ReplayCapital = vm.ReplayCapital; settings.Save(); break;
+                case nameof(MainViewModel.GlobalRiskPercent):
+                    settings.GlobalRiskPercent = vm.GlobalRiskPercent; settings.Save(); break;
+                case nameof(MainViewModel.CommissionPerLotPerSide):
+                    settings.CommissionPerLotPerSide = vm.CommissionPerLotPerSide; settings.Save(); break;
+            }
+        };
 
         // ── StrategyLoader : dossier /Strategies/ à côté de l'exe ────────────
         string strategiesPath = Path.Combine(
@@ -48,6 +77,7 @@ public partial class App : Application
 
         // ── DuckDB Replay ─────────────────────────────────────────────────────
         ReplayService? replayService = null;
+        LiveService?   liveService   = null;
         try
         {
             string candlesDb = ResolveCandlesDb();
@@ -55,9 +85,15 @@ public partial class App : Application
             string liveDb    = Path.Combine(Path.GetDirectoryName(candlesDb)!, "trades.db");
             string replayDb  = Path.Combine(Path.GetDirectoryName(candlesDb)!, "replay_trades.db");
 
+            Services.ReplayLogger.Log("App: new DuckDBReader…");
             var duckReader = new DuckDBReader(candlesDb);
+            Services.ReplayLogger.Log("App: new TradeRepository…");
             var tradeRepo  = new TradeRepository(liveDb, replayDb);
+            _tradeRepo = tradeRepo;
+            Services.ReplayLogger.Log("App: new ReplayService…");
             replayService  = new ReplayService(duckReader, tradeRepo, _mt5);
+            Services.ReplayLogger.Log("App: ReplayService OK");
+            liveService    = new LiveService(_mt5, tradeRepo);
         }
         catch (Exception ex)
         {
@@ -65,16 +101,24 @@ public partial class App : Application
         }
 
         // ── Démarrer le polling connexion ─────────────────────────────────────
+        Services.ReplayLogger.Log("App: StartPolling…");
         _mt5.StartPolling();
+        Services.ReplayLogger.Log("App: StartPolling OK");
 
         // ── Ouvrir la fenêtre principale ──────────────────────────────────────
-        var window = new MainWindow(vm, replayService);
+        Services.ReplayLogger.Log("App: new MainWindow…");
+        var window = new MainWindow(vm, replayService, liveService, settings);
+        Services.ReplayLogger.Log("App: MainWindow OK, calling Show()…");
         MainWindow = window;
         window.Show();
+        Services.ReplayLogger.Log("App: Show() returned");
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Wipe la DB replay_trades — éphémère par design.
+        try { _tradeRepo?.WipeReplayAsync().GetAwaiter().GetResult(); } catch { }
+
         _mt5?.StopPolling();
         _mt5?.Dispose();
         base.OnExit(e);

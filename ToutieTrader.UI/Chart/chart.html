@@ -167,6 +167,58 @@ const seriesChikou = chart.addLineSeries({
     lineStyle: 2,
 });
 
+// ── Points Pivot journaliers ──────────────────────────────────────────────────
+const seriesPP = chart.addLineSeries({
+    color: 'rgba(160,160,210,0.55)', lineWidth: 2, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+    title: 'PP',
+});
+const seriesR1 = chart.addLineSeries({
+    color: 'rgba(0,200,90,0.65)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'R1',
+});
+const seriesR2 = chart.addLineSeries({
+    color: 'rgba(0,200,90,0.35)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'R2',
+});
+const seriesS1 = chart.addLineSeries({
+    color: 'rgba(232,0,45,0.65)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'S1',
+});
+const seriesS2 = chart.addLineSeries({
+    color: 'rgba(232,0,45,0.35)', lineWidth: 1, lineStyle: 1,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'S2',
+});
+const seriesH1PP = chart.addLineSeries({
+    color: 'rgba(190,190,240,0.7)', lineWidth: 2, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, priceFormat: priceFmt,
+    title: 'H1 PP',
+});
+const seriesH1R1 = chart.addLineSeries({
+    color: 'rgba(80,230,140,0.75)', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'H1 R1',
+});
+const seriesH1R2 = chart.addLineSeries({
+    color: 'rgba(80,230,140,0.45)', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'H1 R2',
+});
+const seriesH1S1 = chart.addLineSeries({
+    color: 'rgba(255,70,105,0.75)', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'H1 S1',
+});
+const seriesH1S2 = chart.addLineSeries({
+    color: 'rgba(255,70,105,0.45)', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: true, priceFormat: priceFmt,
+    title: 'H1 S2',
+});
+
 // ── OHLC legend ──────────────────────────────────────────────────────────────
 const ohlcEl = document.getElementById('ohlc');
 let priceDec = 5;   // décimales prix (mis à jour si indices)
@@ -300,12 +352,63 @@ chart.subscribeCrosshairMove(param => {
 
 // ── Markers ───────────────────────────────────────────────────────────────────
 let markers = [];
+let pivotDLines = [];
+let pivotH1Lines = [];
+
+function clearPivotPriceLines(lines) {
+    for (const line of lines) candleSeries.removePriceLine(line);
+    lines.length = 0;
+}
+
+function setPivotPriceLines(kind, levels) {
+    const target = kind === 'D' ? pivotDLines : pivotH1Lines;
+    clearPivotPriceLines(target);
+
+    const prefix = kind === 'D' ? 'D' : 'H1';
+    const defs = [
+        { key: 'pp', label: 'PP', color: kind === 'D' ? 'rgba(190,190,240,0.95)' : 'rgba(255,200,80,0.95)' },
+        { key: 'r1', label: 'R1', color: 'rgba(0,210,100,0.95)' },
+        { key: 'r2', label: 'R2', color: 'rgba(0,210,100,0.75)' },
+        { key: 's1', label: 'S1', color: 'rgba(255,45,85,0.95)' },
+        { key: 's2', label: 'S2', color: 'rgba(255,45,85,0.75)' },
+    ];
+
+    for (const def of defs) {
+        const price = levels[def.key];
+        if (!Number.isFinite(price) || price <= 0) continue;
+        target.push(candleSeries.createPriceLine({
+            price,
+            color: def.color,
+            lineWidth: 2,
+            lineStyle: kind === 'D' ? 0 : 2,
+            axisLabelVisible: true,
+            title: `${prefix} ${def.label}`,
+        }));
+    }
+}
+
+function lastValue(arr) {
+    return Array.isArray(arr) && arr.length > 0 ? arr[arr.length - 1].value : 0;
+}
+
+function lastPivotLevels(msg, prefix) {
+    const h1 = prefix === 'pivotH1';
+    return {
+        pp: lastValue(msg[h1 ? 'pivotH1PP' : 'pivotPP']),
+        r1: lastValue(msg[h1 ? 'pivotH1R1' : 'pivotR1']),
+        r2: lastValue(msg[h1 ? 'pivotH1R2' : 'pivotR2']),
+        s1: lastValue(msg[h1 ? 'pivotH1S1' : 'pivotS1']),
+        s2: lastValue(msg[h1 ? 'pivotH1S2' : 'pivotS2']),
+    };
+}
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
 function resetChart() {
     markers         = [];
     cloudCurrent    = [];
     cloudFuture     = [];
+    clearPivotPriceLines(pivotDLines);
+    clearPivotPriceLines(pivotH1Lines);
     firstCandleTime = null;
     condMap.clear();
     tooltipEl.style.display = 'none';
@@ -319,6 +422,16 @@ function resetChart() {
     seriesSSA26.setData([]);
     seriesSSB26.setData([]);
     seriesChikou.setData([]);
+    seriesPP.setData([]);
+    seriesR1.setData([]);
+    seriesR2.setData([]);
+    seriesS1.setData([]);
+    seriesS2.setData([]);
+    seriesH1PP.setData([]);
+    seriesH1R1.setData([]);
+    seriesH1R2.setData([]);
+    seriesH1S1.setData([]);
+    seriesH1S2.setData([]);
 }
 
 // ── Messages C# → chart ───────────────────────────────────────────────────────
@@ -383,6 +496,14 @@ function handleMsgInner(msg) {
                 seriesSSB26.update({ time: d.futureTime, value: d.senkouB26 });
                 cloudFuture.push({ time: d.futureTime, senkouA: d.senkouA26, senkouB: d.senkouB26 });
             }
+            setPivotPriceLines('D', {
+                pp: d.pivotPP, r1: d.pivotR1, r2: d.pivotR2,
+                s1: d.pivotS1, s2: d.pivotS2,
+            });
+            setPivotPriceLines('H1', {
+                pp: d.pivotH1PP, r1: d.pivotH1R1, r2: d.pivotH1R2,
+                s1: d.pivotH1S1, s2: d.pivotH1S2,
+            });
             // drawCloud déclenché par le message 'redrawCloud' après le flush
             break;
         }
@@ -423,6 +544,18 @@ function handleMsgInner(msg) {
             seriesSSA26.setData( msg.ssa26        || []);
             seriesSSB26.setData( msg.ssb26        || []);
             seriesChikou.setData(msg.chikou       || []);
+            seriesPP.setData([]);
+            seriesR1.setData([]);
+            seriesR2.setData([]);
+            seriesS1.setData([]);
+            seriesS2.setData([]);
+            seriesH1PP.setData([]);
+            seriesH1R1.setData([]);
+            seriesH1R2.setData([]);
+            seriesH1S1.setData([]);
+            seriesH1S2.setData([]);
+            setPivotPriceLines('D', lastPivotLevels(msg, 'pivot'));
+            setPivotPriceLines('H1', lastPivotLevels(msg, 'pivotH1'));
             condMap.clear();
             for (const c of (msg.conditions || [])) {
                 condMap.set(c.time, { long: c.long, short: c.short });

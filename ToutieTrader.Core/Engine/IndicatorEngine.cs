@@ -207,6 +207,16 @@ public sealed class IndicatorEngine
                 prevKijun  = Midpoint(arr, n - 27, n - 1);
             }
 
+            // ── Swing 5 bougies (pour SL dynamique) ──────────────────────────
+            int swing5Start = Math.Max(0, n - 5);
+            double low5  = arr[swing5Start].Low;
+            double high5 = arr[swing5Start].High;
+            for (int i = swing5Start + 1; i < n; i++)
+            {
+                if (arr[i].Low  < low5)  low5  = arr[i].Low;
+                if (arr[i].High > high5) high5 = arr[i].High;
+            }
+
             return new IndicatorValues
             {
                 CandleTime = currentCandle.Time,
@@ -245,6 +255,9 @@ public sealed class IndicatorEngine
                 Low26    = low26,
                 Kijun26  = kijun26,
                 Tenkan26 = tenkan26,
+
+                Low5  = low5,
+                High5 = high5,
 
                 PivotPP = _pivotPP,
                 PivotR1 = _pivotR1,

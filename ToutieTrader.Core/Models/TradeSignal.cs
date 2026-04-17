@@ -10,8 +10,13 @@ public sealed record TradeSignal
     public string       Symbol         { get; init; } = string.Empty;
     public double       Sl             { get; init; }
     public double       Tp             { get; init; }
+    public string?      TpReason       { get; init; }
     public double       EntryPrice     { get; init; }
     public double       LotSize        { get; init; }
+    public double       RiskCapital    { get; init; }
+    public double       RiskPercent    { get; init; }
+    public double       DailyDrawdownPercent { get; init; }
+    public double       RiskDollars    { get; init; }
     public string       CorrelationId  { get; init; } = string.Empty;
     public List<string> ConditionsMet  { get; init; } = [];           // Labels des conditions vraies
 }
