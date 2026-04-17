@@ -76,14 +76,25 @@ public sealed class IchimokuAltiTrading : IStrategy
             "SlBuf_Mid", "SlMin_Mid",
             "SlBuf_Idx", "SlMin_Idx",
         },
+        ["Protection"] = new[]
+        {
+            "ProtectTradeEnabled", "ProtectAtR", "ProtectExtraR",
+        },
         ["Fenêtre horaire"] = new[]
         {
             "Trading24h", "HoraireDebut", "HoraireFin",
         },
         ["Qualité du signal"] = new[]
         {
-            "KijunBreakoutPct", "WickEntry", "TenkanBreak",
-            "TenkanPartielle", "EarlyEntry", "KijunBounce",
+            "KijunBreakoutPct", "CloudBreakoutPct", "TenkanSlopePct",
+            "TenkanSlopeLookback", "KijunFlatMaxBars",
+            "AtrMinPct", "AtrMaxPct", "CloudThicknessMinPct",
+            "DistanceFromCloudMinPct", "DistanceFromCloudMaxPct",
+            "DistanceFromKijunMinPct", "DistanceFromKijunMaxPct",
+            "WickEntry", "TenkanBreak", "TenkanPartielle",
+            "RequirePriceCloud", "RequireCloudDirection",
+            "ChikouVsPrice", "ChikouVsKijun", "ChikouVsTenkan",
+            "EarlyEntry", "EarlyEntrySeconds", "KijunBounce",
         },
         ["Options avancées séparées"] = new[]
         {
@@ -93,6 +104,55 @@ public sealed class IchimokuAltiTrading : IStrategy
         {
             "BreakevenActive", "BreakevenRatio",
         },
+    };
+
+    // ─── Optimisation ──────────────────────────────────────────────────────────
+
+    public Dictionary<string, SettingRange> OptimizableRanges => new()
+    {
+        // Risque
+        ["MinRiskReward"]     = new(1.0m,    4.0m,   0.5m),
+        ["MaxDailyDrawdown"]  = new(1.0m,    5.0m,   0.5m),
+        ["MaxTradesPerSymbolPerDay"] = new(1m, 5m, 1m),
+        ["ReentryCooldownMinutes"]   = new(0m, 90m, 15m),
+
+        // Kijun
+        ["KijunInverseMinR"]  = new(0.0m,    2.0m,   0.25m),
+        ["KijunExitMinR"]     = new(0.5m,    3.0m,   0.5m),
+        ["KijunBreakoutPct"]  = new(0.0m,    0.5m,   0.1m),
+        ["CloudBreakoutPct"]  = new(0.0m,    0.5m,   0.1m),
+        ["TenkanSlopePct"]    = new(0.0m,    0.5m,   0.1m),
+        ["TenkanSlopeLookback"] = new(1m,    5m,     1m),
+        ["KijunFlatMaxBars"]  = new(0m,      12m,    3m),
+        ["AtrMinPct"]         = new(0.0m,    0.3m,   0.05m),
+        ["AtrMaxPct"]         = new(0.0m,    1.5m,   0.25m),
+        ["CloudThicknessMinPct"] = new(0.0m, 0.5m,   0.1m),
+        ["DistanceFromCloudMinPct"] = new(0.0m, 0.5m, 0.1m),
+        ["DistanceFromCloudMaxPct"] = new(0.0m, 2.0m, 0.25m),
+        ["DistanceFromKijunMinPct"] = new(0.0m, 0.5m, 0.1m),
+        ["DistanceFromKijunMaxPct"] = new(0.0m, 2.0m, 0.25m),
+
+        // Stop Loss
+        ["SwingLookbackBars"] = new(5m,      20m,    5m),
+        ["SlBuf_Fx"]          = new(0.0001m, 0.0005m, 0.0001m),
+        ["SlMin_Fx"]          = new(0.0005m, 0.0020m, 0.0005m),
+        ["SlBuf_Jpy"]         = new(0.01m,   0.05m,  0.01m),
+        ["SlMin_Jpy"]         = new(0.05m,   0.20m,  0.05m),
+        ["SlBuf_Mid"]         = new(0.25m,   1.0m,   0.25m),
+        ["SlMin_Mid"]         = new(2.0m,    8.0m,   2.0m),
+        ["SlBuf_Idx"]         = new(0.5m,    3.0m,   0.5m),
+        ["SlMin_Idx"]         = new(5.0m,    20.0m,  5.0m),
+
+        // Breakeven
+        ["BreakevenRatio"]    = new(0.5m,    2.0m,   0.5m),
+
+        // Protection
+        ["ProtectAtR"]        = new(0.5m,    2.0m,   0.25m),
+        ["ProtectExtraR"]     = new(0.0m,    0.5m,   0.1m),
+
+        // Fenêtre horaire
+        ["HoraireDebut"]      = new(0m,      10m,    1m),
+        ["HoraireFin"]        = new(14m,     22m,    1m),
     };
 
     // ─── Risk ─────────────────────────────────────────────────────────────────
@@ -233,6 +293,76 @@ public sealed class IchimokuAltiTrading : IStrategy
         },
     };
 
+    public List<StopLossProtectionRule> StopLossProtections
+    {
+        get
+        {
+            bool protectFeesEnabled = GetBool("ProtectTradeEnabled", true);
+            double protectAtR = Math.Max(0.1, (double)GetDecimal("ProtectAtR", 1.0m));
+            double extraR = Math.Max(0.0, (double)GetDecimal("ProtectExtraR", 0.0m));
+            bool breakevenActive = GetBool("BreakevenActive", false);
+            double breakevenAtR = Math.Max(0.1, (double)GetDecimal("BreakevenRatio", 1.0m));
+            bool optimizedExit = GetBool("OptimizedExit", false);
+
+            var rules = new List<StopLossProtectionRule>();
+
+            if (protectFeesEnabled)
+            {
+                rules.Add(new StopLossProtectionRule
+                {
+                    Label = "Protect fees",
+                    Timeframe = Timeframe,
+                    ComputeStopLoss = (_, _, trade, ctx) =>
+                    {
+                        if (ctx.CurrentR < protectAtR)
+                            return null;
+
+                        double extra = ctx.RiskDistance * extraR;
+                        return trade.Direction == "BUY"
+                            ? ctx.FeesCoveredStop + extra
+                            : ctx.FeesCoveredStop - extra;
+                    },
+                });
+            }
+
+            if (breakevenActive)
+            {
+                rules.Add(new StopLossProtectionRule
+                {
+                    Label = "Breakeven fees",
+                    Timeframe = Timeframe,
+                    ComputeStopLoss = (_, _, trade, ctx) =>
+                    {
+                        if (ctx.CurrentR < breakevenAtR)
+                            return null;
+
+                        return ctx.FeesCoveredStop;
+                    },
+                });
+            }
+
+            if (optimizedExit)
+            {
+                rules.Add(new StopLossProtectionRule
+                {
+                    Label = "Trail previous candle",
+                    Timeframe = Timeframe,
+                    ComputeStopLoss = (iv, _, trade, ctx) =>
+                    {
+                        if (ctx.CurrentR < 2.0)
+                            return null;
+
+                        return trade.Direction == "BUY"
+                            ? Math.Max(ctx.FeesCoveredStop, iv.PrevLow)
+                            : Math.Min(ctx.FeesCoveredStop, iv.PrevHigh);
+                    },
+                });
+            }
+
+            return rules;
+        }
+    }
+
     private static double NextPivotTarget(
         IndicatorValues iv,
         string dir,
@@ -299,6 +429,11 @@ public sealed class IchimokuAltiTrading : IStrategy
         ["KijunInverseMinR"] = 0.5m,   // multiplicateur × buffer natif (GetStopProfile) que le close doit dépasser la Kijun inverse
         ["KijunExitMinR"]    = 2.0m,   // Kijun reverse ferme seulement si le trade a atteint au moins ce multiple du risque
 
+        // Protection du trade ouvert
+        ["ProtectTradeEnabled"] = true,
+        ["ProtectAtR"]          = 1.0m,
+        ["ProtectExtraR"]       = 0.0m,
+
         // Profils SL natifs — (Buffer, MinDistance) par classe d'actif (en unités de prix brutes)
         // Tier Forex  : Close < 50    → EURUSD, GBPUSD, AUDUSD…
         ["SlBuf_Fx"]  = 0.0002m, ["SlMin_Fx"]  = 0.0008m,
@@ -316,10 +451,27 @@ public sealed class IchimokuAltiTrading : IStrategy
 
         // Qualité du signal
         ["KijunBreakoutPct"] = 0m,     // % du range (H-L) que le close doit dépasser la Kijun
+        ["CloudBreakoutPct"] = 0m,     // % du range (H-L) exige au-dessus/en-dessous du nuage
+        ["TenkanSlopePct"]   = 0m,     // pente Tenkan minimum en % du range de bougie
+        ["TenkanSlopeLookback"] = 1,   // nombre de bougies pour mesurer la pente Tenkan
+        ["KijunFlatMaxBars"] = 0,      // 0 = desactive; sinon rejette si Kijun flat trop longtemps
+        ["AtrMinPct"]        = 0m,     // 0 = desactive; ATR14 min en % du prix
+        ["AtrMaxPct"]        = 0m,     // 0 = desactive; ATR14 max en % du prix
+        ["CloudThicknessMinPct"] = 0m, // 0 = desactive; epaisseur min du nuage futur +26 en % du prix
+        ["DistanceFromCloudMinPct"] = 0m, // 0 = desactive; distance min prix-nuage courant en % du prix
+        ["DistanceFromCloudMaxPct"] = 0m, // 0 = desactive; distance max prix-nuage courant en % du prix
+        ["DistanceFromKijunMinPct"] = 0m, // 0 = desactive; distance min close-Kijun en % du prix
+        ["DistanceFromKijunMaxPct"] = 0m, // 0 = desactive; distance max close-Kijun en % du prix
         ["WickEntry"]        = false,  // autoriser entrée sur la mèche (High/Low) plutôt que clôture
         ["TenkanBreak"]      = false,  // exiger cassure franche de la Tenkan (Close > Tenkan strict)
         ["TenkanPartielle"]  = false,  // accepter cassure Tenkan partielle (précédente bougie)
-        ["EarlyEntry"]       = false,  // entrer dès la cassure Tenkan sans attendre la Kijun
+        ["RequirePriceCloud"] = true,  // exiger prix hors nuage
+        ["RequireCloudDirection"] = true, // exiger nuage futur +26 dans le sens du trade
+        ["ChikouVsPrice"]    = true,   // Chikou libre vs prix 26 périodes
+        ["ChikouVsKijun"]    = true,   // Chikou au-dessus/en-dessous Kijun26
+        ["ChikouVsTenkan"]   = true,   // Chikou au-dessus/en-dessous Tenkan26
+        ["EarlyEntry"]       = false,  // entrer avant la fermeture de la bougie signal
+        ["EarlyEntrySeconds"] = 10,    // secondes avant le close de bougie quand EarlyEntry=true
         ["KijunBounce"]      = false,  // signal de continuation : rebond sur Kijun dans tendance
 
         // Options avancées séparées
@@ -356,20 +508,34 @@ public sealed class IchimokuAltiTrading : IStrategy
                     ? iv.High    > iv.Kijun + minGap && iv.PrevHigh  <= iv.PrevKijun
                     : iv.Close   > iv.Kijun + minGap && iv.PrevClose <= iv.PrevKijun;
 
-                return cassure;
+                bool bounce = GetBool("KijunBounce", false) &&
+                              (iv.Low <= iv.Kijun || iv.PrevLow <= iv.PrevKijun) &&
+                              iv.Close > iv.Kijun + minGap &&
+                              iv.Close > iv.Open;
+
+                return cassure || bounce;
             },
         },
         new StrategyCondition
         {
             Label      = "H3 Prix au-dessus du nuage",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.Close > Math.Max(iv.SenkouA, iv.SenkouB),
+            Expression = (iv, _) =>
+            {
+                if (!GetBool("RequirePriceCloud", true)) return true;
+                if (iv.SenkouA <= 0 || iv.SenkouB <= 0) return false;
+                double pct = (double)GetDecimal("CloudBreakoutPct", 0m) / 100.0;
+                double minGap = pct * (iv.High - iv.Low);
+                return iv.Close > Math.Max(iv.SenkouA, iv.SenkouB) + minGap;
+            },
         },
         new StrategyCondition
         {
             Label      = "H4 Nuage haussier",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.SenkouA > iv.SenkouB,
+            Expression = (iv, _) =>
+                !GetBool("RequireCloudDirection", true) ||
+                (iv.SenkouA26 > 0 && iv.SenkouB26 > 0 && iv.SenkouA26 > iv.SenkouB26),
         },
         new StrategyCondition
         {
@@ -388,17 +554,29 @@ public sealed class IchimokuAltiTrading : IStrategy
             Label      = "H6 Chikou libre",
             Timeframe  = Timeframe,
             Expression = (iv, _) =>
-                iv.High26 > 0                                        &&
-                iv.Chikou > iv.High26                                &&
-                iv.Chikou > Math.Max(iv.SenkouA, iv.SenkouB)         &&
-                iv.Chikou > iv.Kijun26                               &&
-                iv.Chikou > iv.Tenkan26,
+                iv.High26 > 0 &&
+                (!GetBool("ChikouVsPrice", true)  || iv.Chikou > iv.High26) &&
+                (!GetBool("ChikouVsKijun", true)  || iv.Chikou > iv.Kijun26) &&
+                (!GetBool("ChikouVsTenkan", true) || iv.Chikou > iv.Tenkan26),
         },
         new StrategyCondition
         {
             Label      = "H7 Pente Tenkan haussière",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.Tenkan >= iv.PrevTenkan,
+            Expression = (iv, _) =>
+            {
+                double pct = (double)GetDecimal("TenkanSlopePct", 0m) / 100.0;
+                bool tenkanOk = IsTenkanSlopeOk(iv, bullish: true, pct);
+                bool macdOk = !GetBool("Divergence", false) ||
+                              (iv.MacdLine > iv.SignalLine && iv.Histogram > 0);
+                return tenkanOk && macdOk;
+            },
+        },
+        new StrategyCondition
+        {
+            Label      = "H8 Filtres structure haussiers",
+            Timeframe  = Timeframe,
+            Expression = (iv, _) => PassesStructureFilters(iv, bullish: true),
         },
         new StrategyCondition
         {
@@ -439,20 +617,34 @@ public sealed class IchimokuAltiTrading : IStrategy
                     ? iv.Low     < iv.Kijun - minGap && iv.PrevLow  >= iv.PrevKijun
                     : iv.Close   < iv.Kijun - minGap && iv.PrevClose >= iv.PrevKijun;
 
-                return cassure;
+                bool bounce = GetBool("KijunBounce", false) &&
+                              (iv.High >= iv.Kijun || iv.PrevHigh >= iv.PrevKijun) &&
+                              iv.Close < iv.Kijun - minGap &&
+                              iv.Close < iv.Open;
+
+                return cassure || bounce;
             },
         },
         new StrategyCondition
         {
             Label      = "H3 Prix en-dessous du nuage",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.Close < Math.Min(iv.SenkouA, iv.SenkouB),
+            Expression = (iv, _) =>
+            {
+                if (!GetBool("RequirePriceCloud", true)) return true;
+                if (iv.SenkouA <= 0 || iv.SenkouB <= 0) return false;
+                double pct = (double)GetDecimal("CloudBreakoutPct", 0m) / 100.0;
+                double minGap = pct * (iv.High - iv.Low);
+                return iv.Close < Math.Min(iv.SenkouA, iv.SenkouB) - minGap;
+            },
         },
         new StrategyCondition
         {
             Label      = "H4 Nuage baissier",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.SenkouA < iv.SenkouB,
+            Expression = (iv, _) =>
+                !GetBool("RequireCloudDirection", true) ||
+                (iv.SenkouA26 > 0 && iv.SenkouB26 > 0 && iv.SenkouA26 < iv.SenkouB26),
         },
         new StrategyCondition
         {
@@ -471,17 +663,29 @@ public sealed class IchimokuAltiTrading : IStrategy
             Label      = "H6 Chikou libre",
             Timeframe  = Timeframe,
             Expression = (iv, _) =>
-                iv.Low26  > 0                                        &&
-                iv.Chikou < iv.Low26                                 &&
-                iv.Chikou < Math.Min(iv.SenkouA, iv.SenkouB)         &&
-                iv.Chikou < iv.Kijun26                               &&
-                iv.Chikou < iv.Tenkan26,
+                iv.Low26 > 0 &&
+                (!GetBool("ChikouVsPrice", true)  || iv.Chikou < iv.Low26) &&
+                (!GetBool("ChikouVsKijun", true)  || iv.Chikou < iv.Kijun26) &&
+                (!GetBool("ChikouVsTenkan", true) || iv.Chikou < iv.Tenkan26),
         },
         new StrategyCondition
         {
             Label      = "H7 Pente Tenkan baissière",
             Timeframe  = Timeframe,
-            Expression = (iv, _) => iv.Tenkan <= iv.PrevTenkan,
+            Expression = (iv, _) =>
+            {
+                double pct = (double)GetDecimal("TenkanSlopePct", 0m) / 100.0;
+                bool tenkanOk = IsTenkanSlopeOk(iv, bullish: false, pct);
+                bool macdOk = !GetBool("Divergence", false) ||
+                              (iv.MacdLine < iv.SignalLine && iv.Histogram < 0);
+                return tenkanOk && macdOk;
+            },
+        },
+        new StrategyCondition
+        {
+            Label      = "H8 Filtres structure baissiers",
+            Timeframe  = Timeframe,
+            Expression = (iv, _) => PassesStructureFilters(iv, bullish: false),
         },
         new StrategyCondition
         {
@@ -555,6 +759,147 @@ public sealed class IchimokuAltiTrading : IStrategy
     }
 
     public List<StrategyCondition> OptionalExitConditions => new();
+
+    private bool IsTenkanSlopeOk(IndicatorValues iv, bool bullish, double pct)
+    {
+        int lookback = Math.Max(1, GetInt("TenkanSlopeLookback", 1));
+        double referenceTenkan = TenkanAtLookback(iv, lookback);
+        double minSlope = pct * Math.Max(0, iv.High - iv.Low) * lookback;
+
+        return bullish
+            ? iv.Tenkan - referenceTenkan >= minSlope
+            : referenceTenkan - iv.Tenkan >= minSlope;
+    }
+
+    private bool PassesStructureFilters(IndicatorValues iv, bool bullish)
+    {
+        if (!PassesAtrFilter(iv)) return false;
+        if (!PassesCloudThicknessFilter(iv)) return false;
+        if (!PassesDistanceFromCloudFilter(iv, bullish)) return false;
+        if (!PassesDistanceFromKijunFilter(iv, bullish)) return false;
+        if (!PassesKijunFlatFilter(iv)) return false;
+        return true;
+    }
+
+    private bool PassesAtrFilter(IndicatorValues iv)
+    {
+        if (iv.Close <= 0) return true;
+
+        double atrPct = iv.Atr14 > 0 ? iv.Atr14 / iv.Close * 100.0 : 0.0;
+        double minPct = Math.Max(0.0, (double)GetDecimal("AtrMinPct", 0m));
+        double maxPct = Math.Max(0.0, (double)GetDecimal("AtrMaxPct", 0m));
+
+        if (minPct > 0 && atrPct < minPct) return false;
+        if (maxPct > 0 && atrPct > maxPct) return false;
+        return true;
+    }
+
+    private bool PassesCloudThicknessFilter(IndicatorValues iv)
+    {
+        double minPct = Math.Max(0.0, (double)GetDecimal("CloudThicknessMinPct", 0m));
+        if (minPct <= 0 || iv.Close <= 0) return true;
+
+        if (iv.SenkouA26 <= 0 || iv.SenkouB26 <= 0) return false;
+        double cloudPct = Math.Abs(iv.SenkouA26 - iv.SenkouB26) / iv.Close * 100.0;
+        return cloudPct >= minPct;
+    }
+
+    private bool PassesDistanceFromCloudFilter(IndicatorValues iv, bool bullish)
+    {
+        double minPct = Math.Max(0.0, (double)GetDecimal("DistanceFromCloudMinPct", 0m));
+        double maxPct = Math.Max(0.0, (double)GetDecimal("DistanceFromCloudMaxPct", 0m));
+        if (minPct <= 0 && maxPct <= 0) return true;
+        if (iv.Close <= 0 || iv.SenkouA <= 0 || iv.SenkouB <= 0) return false;
+
+        double top = Math.Max(iv.SenkouA, iv.SenkouB);
+        double bottom = Math.Min(iv.SenkouA, iv.SenkouB);
+        double distance = bullish
+            ? iv.Close - top
+            : bottom - iv.Close;
+
+        if (distance <= 0) return false;
+
+        double distancePct = distance / iv.Close * 100.0;
+        if (minPct > 0 && distancePct < minPct) return false;
+        if (maxPct > 0 && distancePct > maxPct) return false;
+        return true;
+    }
+
+    private bool PassesDistanceFromKijunFilter(IndicatorValues iv, bool bullish)
+    {
+        if (iv.Close <= 0 || iv.Kijun <= 0) return true;
+
+        double distancePct = Math.Abs(iv.Close - iv.Kijun) / iv.Close * 100.0;
+        double minPct = Math.Max(0.0, (double)GetDecimal("DistanceFromKijunMinPct", 0m));
+        double maxPct = Math.Max(0.0, (double)GetDecimal("DistanceFromKijunMaxPct", 0m));
+
+        bool correctSide = bullish ? iv.Close > iv.Kijun : iv.Close < iv.Kijun;
+        if (!correctSide) return false;
+        if (minPct > 0 && distancePct < minPct) return false;
+        if (maxPct > 0 && distancePct > maxPct) return false;
+        return true;
+    }
+
+    private bool PassesKijunFlatFilter(IndicatorValues iv)
+    {
+        int maxFlatBars = GetInt("KijunFlatMaxBars", 0);
+        if (maxFlatBars <= 0) return true;
+
+        int flatBars = CountFlatKijunBars(iv, maxFlatBars + 1);
+        return flatBars <= maxFlatBars;
+    }
+
+    private static double TenkanAtLookback(IndicatorValues iv, int lookback)
+        => MidpointAtLookback(iv.RecentHighs, iv.RecentLows, 9, lookback, iv.PrevTenkan > 0 ? iv.PrevTenkan : iv.Tenkan);
+
+    private static double KijunAtLookback(IndicatorValues iv, int lookback)
+        => MidpointAtLookback(iv.RecentHighs, iv.RecentLows, 26, lookback, iv.PrevKijun > 0 ? iv.PrevKijun : iv.Kijun);
+
+    private static double MidpointAtLookback(
+        IReadOnlyList<double> highs,
+        IReadOnlyList<double> lows,
+        int period,
+        int lookback,
+        double fallback)
+    {
+        if (highs.Count == 0 || lows.Count == 0) return fallback;
+
+        int count = Math.Min(highs.Count, lows.Count);
+        int end = count - 1 - Math.Max(0, lookback);
+        if (end < 0) return fallback;
+
+        int start = Math.Max(0, end - period + 1);
+        double high = highs[start];
+        double low = lows[start];
+        for (int i = start + 1; i <= end; i++)
+        {
+            if (highs[i] > high) high = highs[i];
+            if (lows[i] < low) low = lows[i];
+        }
+
+        return (high + low) / 2.0;
+    }
+
+    private static int CountFlatKijunBars(IndicatorValues iv, int maxScan)
+    {
+        if (iv.Kijun <= 0 || iv.Close <= 0) return 0;
+
+        double tolerance = Math.Max(iv.Close * 0.000001, 0.0000001);
+        int flat = 0;
+        double current = iv.Kijun;
+        int scan = Math.Max(1, maxScan);
+
+        for (int lookback = 1; lookback <= scan; lookback++)
+        {
+            double previous = KijunAtLookback(iv, lookback);
+            if (Math.Abs(current - previous) > tolerance)
+                break;
+            flat++;
+            current = previous;
+        }
+
+        return flat;
+    }
 
     private static bool HasReachedMinimumR(TradeRecord trade, double currentPrice, double minR)
     {

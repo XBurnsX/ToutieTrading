@@ -71,6 +71,17 @@ class CloseOrderResponse(BaseModel):
 
 # ─── /watchlist ───────────────────────────────────────────────────────────────
 
+class ModifyStopLossRequest(BaseModel):
+    ticket: int
+    sl: float
+
+
+class ModifyStopLossResponse(BaseModel):
+    modified: bool
+    sl: float
+    time: str               # ISO 8601 offset-aware heure Quebec
+
+
 class WatchlistSymbol(BaseModel):
     mt5_name:       str       # Nom broker-natif (ex: "EURUSD.m")
     canonical_name: str       # Nom canonique normalisé (ex: "EURUSD")

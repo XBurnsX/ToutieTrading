@@ -280,6 +280,15 @@ public sealed class TradeManager
                     break;
                 }
             }
+
+            if (!toClose.Any(c => c.CorrelationId == corrId))
+                await ApplyStopLossProtectionsAsync(
+                    record,
+                    strategy,
+                    candle,
+                    indicators,
+                    trendState,
+                    ct).ConfigureAwait(false);
         }
 
         // Fermer les trades
@@ -386,6 +395,15 @@ public sealed class TradeManager
                     break;
                 }
             }
+
+            if (!toClose.Any(c => c.CorrelationId == corrId))
+                await ApplyStopLossProtectionsAsync(
+                    record,
+                    strategy,
+                    candle,
+                    indicators,
+                    trendState,
+                    ct).ConfigureAwait(false);
         }
 
         foreach (var (corrId, reason) in toClose)
@@ -410,6 +428,111 @@ public sealed class TradeManager
         TradeRecord record)
         => cond.TradeExpression?.Invoke(indicators, trend, record)
            ?? cond.Expression(indicators, trend);
+
+    private async Task ApplyStopLossProtectionsAsync(
+        TradeRecord record,
+        IStrategy strategy,
+        Candle candle,
+        IndicatorValues fallbackIndicators,
+        TrendState fallbackTrend,
+        CancellationToken ct)
+    {
+        if (strategy.StopLossProtections.Count == 0) return;
+        if (!record.EntryPrice.HasValue || !record.Sl.HasValue || !record.LotSize.HasValue)
+            return;
+
+        var meta = _metaProvider(record.Symbol);
+        if (meta is null) return;
+
+        foreach (var rule in strategy.StopLossProtections)
+        {
+            if (rule.ApplicableDirection is not null &&
+                rule.ApplicableDirection != record.Direction)
+                continue;
+
+            var indicators = _indicators.GetIndicators(candle.Symbol, rule.Timeframe) ?? fallbackIndicators;
+            var trend = _trend.GetTrend(candle.Symbol, rule.Timeframe) ?? fallbackTrend;
+            double currentPrice = indicators.Close > 0 ? indicators.Close : candle.Close;
+            double riskDistance = Math.Abs(record.EntryPrice.Value - record.Sl.Value);
+            if (riskDistance <= 0) continue;
+
+            var context = new StopLossProtectionContext
+            {
+                CurrentPrice = currentPrice,
+                CurrentR = CurrentRiskReward(record, currentPrice),
+                RiskDistance = riskDistance,
+                FeesCoveredStop = CalculateFeesCoveredStop(record, meta),
+                Meta = meta,
+            };
+
+            var candidate = rule.ComputeStopLoss(indicators, trend, record, context);
+            if (!candidate.HasValue) continue;
+
+            double newSl = RoundPrice(candidate.Value, meta);
+            if (!IsImprovedStopLoss(record, newSl)) continue;
+            if (!CanPlaceStopLoss(record, newSl, currentPrice, meta)) continue;
+
+            await _execution.ModifyStopLossAsync(record, newSl, ct).ConfigureAwait(false);
+        }
+    }
+
+    private double CalculateFeesCoveredStop(TradeRecord record, SymbolMeta meta)
+    {
+        if (!record.EntryPrice.HasValue || !record.LotSize.HasValue)
+            return 0;
+
+        double totalFees = Math.Max(0, record.Fees ?? 0);
+        if (meta.ChargesCommission && _commissionPerLotPerSide > 0)
+            totalFees += record.LotSize.Value * _commissionPerLotPerSide * 2.0;
+
+        double moneyPerPriceForTrade = Math.Abs(meta.MoneyPerLot(1.0)) * record.LotSize.Value;
+        if (moneyPerPriceForTrade <= 0)
+            return record.EntryPrice.Value;
+
+        double offset = totalFees / moneyPerPriceForTrade;
+        double roundBuffer = meta.Point > 0 ? meta.Point : 0;
+
+        return record.Direction == "BUY"
+            ? record.EntryPrice.Value + offset + roundBuffer
+            : record.EntryPrice.Value - offset - roundBuffer;
+    }
+
+    private static double CurrentRiskReward(TradeRecord record, double currentPrice)
+    {
+        if (!record.EntryPrice.HasValue || !record.Sl.HasValue) return 0;
+        double risk = Math.Abs(record.EntryPrice.Value - record.Sl.Value);
+        if (risk <= 0) return 0;
+
+        double favorable = record.Direction == "BUY"
+            ? currentPrice - record.EntryPrice.Value
+            : record.EntryPrice.Value - currentPrice;
+
+        return favorable / risk;
+    }
+
+    private static bool IsImprovedStopLoss(TradeRecord record, double newSl)
+    {
+        if (!record.Sl.HasValue || !record.EntryPrice.HasValue) return false;
+
+        return record.Direction == "BUY"
+            ? newSl > record.Sl.Value && newSl > record.EntryPrice.Value
+            : newSl < record.Sl.Value && newSl < record.EntryPrice.Value;
+    }
+
+    private static bool CanPlaceStopLoss(
+        TradeRecord record,
+        double newSl,
+        double currentPrice,
+        SymbolMeta meta)
+    {
+        double gap = meta.Point > 0 ? meta.Point * 2.0 : 0;
+        return record.Direction == "BUY"
+            ? newSl < currentPrice - gap
+            : newSl > currentPrice + gap;
+    }
+
+    private static double RoundPrice(double price, SymbolMeta meta)
+        => meta.Digits >= 0 ? Math.Round(price, meta.Digits) : price;
 
     private double EstimateRoundTripFeesPerLot(SymbolMeta meta, double spreadAtEntry)
     {

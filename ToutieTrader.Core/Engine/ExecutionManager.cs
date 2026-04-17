@@ -193,6 +193,36 @@ public sealed class ExecutionManager
     /// Si la meta du symbole n'est pas disponible (cas de fallback), tombe à 0
     /// plutôt que d'inventer un prix → mieux qu'un nombre faux.
     /// </summary>
+    public async Task<bool> ModifyStopLossAsync(
+        TradeRecord record,
+        double newStopLoss,
+        CancellationToken ct)
+    {
+        if (!record.TicketId.HasValue && !_executor.IsReplay)
+            return false;
+
+        try
+        {
+            double acceptedSl = newStopLoss;
+            if (record.TicketId.HasValue && !_executor.IsReplay)
+                acceptedSl = await _executor.ModifyStopLossAsync(
+                    record.TicketId.Value,
+                    record.Symbol,
+                    newStopLoss,
+                    ct).ConfigureAwait(false);
+
+            record.Sl = acceptedSl;
+            await _saveTrade(record).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            record.ErrorLog = $"Modify SL failed: {ex.Message}";
+            await _saveTrade(record).ConfigureAwait(false);
+            return false;
+        }
+    }
+
     private double CalculatePnl(TradeRecord record, double closePrice)
     {
         if (record.EntryPrice is null || record.LotSize is null)

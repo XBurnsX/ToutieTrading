@@ -16,5 +16,8 @@ public interface IOrderExecutor
     Task<(double ClosePrice, DateTimeOffset CloseTime)>
         CloseOrderAsync(long ticketId, string symbol, CancellationToken ct);
 
+    /// <summary>Modifie le stop loss d'une position ouverte. Retourne le SL accepte.</summary>
+    Task<double> ModifyStopLossAsync(long ticketId, string symbol, double stopLoss, CancellationToken ct);
+
     bool IsReplay { get; }
 }

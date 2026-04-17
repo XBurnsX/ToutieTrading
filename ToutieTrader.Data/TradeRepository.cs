@@ -101,6 +101,8 @@ public sealed class TradeRepository
                 ON CONFLICT (id) DO UPDATE SET
                     exit_time       = excluded.exit_time,
                     exit_price      = excluded.exit_price,
+                    sl              = excluded.sl,
+                    tp              = excluded.tp,
                     profit_loss     = excluded.profit_loss,
                     risk_dollars    = excluded.risk_dollars,
                     lot_size        = excluded.lot_size,

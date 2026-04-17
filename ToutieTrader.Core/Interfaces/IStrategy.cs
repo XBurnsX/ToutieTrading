@@ -52,6 +52,12 @@ public interface IStrategy
     StopLossRule   StopLoss   { get; }
     TakeProfitRule TakeProfit { get; }
 
+    /// <summary>
+    /// Regles de protection du SL sur trades ouverts.
+    /// Exemple : a +1R, remonter le SL au niveau qui couvre les frais.
+    /// </summary>
+    List<StopLossProtectionRule> StopLossProtections => new();
+
     // ── Conditions d'entrée ───────────────────────────────────────────────────
 
     /// <summary>TOUTES doivent être vraies pour entrer LONG.</summary>
@@ -96,4 +102,12 @@ public interface IStrategy
     /// Implémentation par défaut = affichage plat sans sections.
     /// </summary>
     Dictionary<string, string[]> SettingSections => new();
+
+    /// <summary>
+    /// Plages d'optimisation par défaut pour les settings numériques.
+    /// Clé = nom du setting (doit correspondre à une clé dans Settings).
+    /// Valeur = plage From/To/Step. L'optimizer utilise ces plages comme point de départ.
+    /// Implémentation par défaut = aucun setting optimisable.
+    /// </summary>
+    Dictionary<string, SettingRange> OptimizableRanges => new();
 }

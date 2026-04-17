@@ -454,6 +454,28 @@ public sealed class MT5ApiClient : IDisposable
         return (dto.ClosePrice, TimeZoneHelper.ToQuebec(closeTime));
     }
 
+    public async Task<double> ModifyStopLossAsync(long ticketId, double stopLoss)
+    {
+        using var cts = Timeout(10);
+
+        var body = new ModifyStopLossRequest { Ticket = ticketId, Sl = stopLoss };
+        var response = await _http.PostAsJsonAsync(
+            $"{_baseUrl}/modify_sl", body, _jsonOpts, cts.Token).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadFromJsonAsync<ErrorDto>(
+                _jsonOpts, cts.Token).ConfigureAwait(false);
+            throw new HttpRequestException(err?.Reason ?? err?.Error ?? response.ReasonPhrase);
+        }
+
+        var dto = await response.Content.ReadFromJsonAsync<ModifyStopLossResponse>(
+            _jsonOpts, cts.Token).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Reponse /modify_sl vide.");
+
+        return dto.Sl;
+    }
+
     // ─── IDisposable ──────────────────────────────────────────────────────────
 
     public void Dispose()
@@ -541,6 +563,17 @@ public sealed class MT5ApiClient : IDisposable
         [property: JsonPropertyName("closed")]      bool   Closed,
         [property: JsonPropertyName("close_price")] double ClosePrice,
         [property: JsonPropertyName("time")]        string Time);
+
+    private sealed class ModifyStopLossRequest
+    {
+        [JsonPropertyName("ticket")] public long Ticket { get; set; }
+        [JsonPropertyName("sl")]     public double Sl   { get; set; }
+    }
+
+    private sealed record ModifyStopLossResponse(
+        [property: JsonPropertyName("modified")] bool Modified,
+        [property: JsonPropertyName("sl")]       double Sl,
+        [property: JsonPropertyName("time")]     string Time);
 
     private sealed record ErrorDto(
         [property: JsonPropertyName("error")]  string Error,

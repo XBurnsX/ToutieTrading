@@ -287,6 +287,45 @@ def close_order(ticket: int) -> dict:
 # Première run d'une range = ~30-60s. Runs suivants de la même range = instant.
 
 # Chemin vers la DB #1 (candles historiques) — résolu dynamiquement au 1er appel
+def modify_stop_loss(ticket: int, sl: float) -> dict:
+    """
+    Modifie seulement le SL d'une position ouverte.
+    Le TP existant est preserve.
+    """
+    if not is_connected():
+        raise RuntimeError("MT5 unavailable")
+
+    positions = mt5.positions_get(ticket=ticket)
+    if not positions:
+        raise TicketNotFoundError(ticket)
+
+    pos = positions[0]
+    info = mt5.symbol_info(pos.symbol)
+    if info is None:
+        raise ValueError(f"Symbol info unavailable: {pos.symbol}")
+
+    request = {
+        "action":   mt5.TRADE_ACTION_SLTP,
+        "position": ticket,
+        "symbol":   pos.symbol,
+        "sl":       _round_price(sl, info),
+        "tp":       _round_price(float(pos.tp), info) if float(pos.tp or 0) > 0 else 0.0,
+        "magic":    BOT_MAGIC,
+        "comment":  f"{BOT_TAG}:modify_sl",
+    }
+
+    result = mt5.order_send(request)
+    if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+        reason = result.comment if result else "Aucune reponse MT5"
+        raise ValueError(reason)
+
+    return {
+        "modified": True,
+        "sl":       request["sl"],
+        "time":     format_iso(utc_now_quebec()),
+    }
+
+
 _CANDLES_DB_PATH: Optional[Path] = None
 
 

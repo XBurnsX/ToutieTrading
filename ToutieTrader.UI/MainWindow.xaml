@@ -93,6 +93,9 @@
                 <RadioButton x:Name="NavSettings"  Content="Settings"
                              GroupName="Nav" Style="{StaticResource BtnNav}"
                              Checked="NavSettings_Checked"/>
+                <RadioButton x:Name="NavOptimizer" Content="Optimizer"
+                             GroupName="Nav" Style="{StaticResource BtnNav}"
+                             Checked="NavOptimizer_Checked"/>
             </StackPanel>
         </Border>
 

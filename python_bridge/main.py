@@ -35,6 +35,8 @@ from models import (
     OrderResponse,
     CloseOrderRequest,
     CloseOrderResponse,
+    ModifyStopLossRequest,
+    ModifyStopLossResponse,
     EnsureCandlesRangeRequest,
     EnsureCandlesRangeResponse,
     EnsureTicksRangeRequest,
@@ -262,3 +264,19 @@ async def close_order(req: CloseOrderRequest):
         return JSONResponse(status_code=404, content={"error": "Ticket not found"})
     except ValueError as e:
         return JSONResponse(status_code=422, content={"error": str(e)})
+
+
+@app.post("/modify_sl", response_model=ModifyStopLossResponse)
+async def modify_sl(req: ModifyStopLossRequest):
+    """
+    Modifie le SL d'une position ouverte par son ticket MT5.
+    Ticket introuvable -> 404. Rejet broker -> 422.
+    """
+    try:
+        return mt5_service.modify_stop_loss(req.ticket, req.sl)
+    except RuntimeError as e:
+        return JSONResponse(status_code=503, content={"error": str(e)})
+    except TicketNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "Ticket not found"})
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"error": "Modify SL rejected", "reason": str(e)})

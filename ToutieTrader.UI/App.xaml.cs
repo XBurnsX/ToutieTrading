@@ -19,6 +19,43 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        // ── Handlers globaux d'exception : plus jamais de crash silencieux ──
+        string crashLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
+        void LogAndShow(string origin, Exception ex)
+        {
+            try
+            {
+                File.AppendAllText(crashLog,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {origin}\n{ex}\n---\n");
+            }
+            catch { /* rien à faire */ }
+            try
+            {
+                Current?.Dispatcher.Invoke(() =>
+                    MessageBox.Show(
+                        $"Erreur non gérée ({origin}) :\n\n{ex.Message}\n\nDétails dans crash.log",
+                        "ToutieTrader — crash",
+                        MessageBoxButton.OK, MessageBoxImage.Error));
+            }
+            catch { /* dispatcher peut être mort */ }
+        }
+
+        DispatcherUnhandledException += (_, args) =>
+        {
+            LogAndShow("UI thread", args.Exception);
+            args.Handled = true;   // empêche la fermeture de l'app
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            if (args.ExceptionObject is Exception ex)
+                LogAndShow("AppDomain", ex);
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            LogAndShow("Task", args.Exception);
+            args.SetObserved();
+        };
+
         // ── Phase 1 : rapide, sur le thread UI ───────────────────────────────
         _mt5 = new MT5ApiClient("http://127.0.0.1:8000");
         var settings = AppSettings.Load();
@@ -106,7 +143,7 @@ public partial class App : Application
 
             // Injecter les services dans la fenêtre déjà affichée
             Current.Dispatcher.Invoke(() =>
-                window.InitServices(replayService, liveService, tradeRepo));
+                window.InitServices(replayService, liveService, tradeRepo, _mt5));
         });
     }
 

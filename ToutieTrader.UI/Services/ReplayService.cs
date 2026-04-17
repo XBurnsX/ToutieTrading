@@ -789,12 +789,44 @@ public sealed class ReplayService
                         ? (ts, l, s) => OnConditionsEvaluated?.Invoke(ts, l, s)
                         : null;
 
+                    bool earlyEntry = GetStrategyBool(cfg.Strategy, "EarlyEntry", false);
+                    int earlySeconds = GetStrategyInt(cfg.Strategy, "EarlyEntrySeconds", 10);
+                    Tick? earlyTick = null;
+                    Candle? earlyExecutionCandle = null;
+                    if (earlyEntry)
+                    {
+                        var candleEnd = candle.Time.AddSeconds(TfSeconds(candle.Timeframe));
+                        var earlyTime = candleEnd.AddSeconds(-Math.Max(0, earlySeconds));
+
+                        if (candleTicks is { Count: > 0 })
+                            earlyTick = candleTicks.FirstOrDefault(t => t.Time >= earlyTime);
+
+                        double earlyPrice = earlyTick is not null
+                            ? (earlyTick.Bid > 0 ? earlyTick.Bid : earlyTick.Last)
+                            : candle.Close;
+
+                        earlyExecutionCandle = new Candle
+                        {
+                            Symbol    = candle.Symbol,
+                            Timeframe = candle.Timeframe,
+                            Time      = earlyTime,
+                            Open      = earlyPrice,
+                            High      = earlyPrice,
+                            Low       = earlyPrice,
+                            Close     = earlyPrice,
+                            Volume    = candle.Volume,
+                        };
+                    }
+
                     await StrategyEvaluator.EvaluateAsync(
                         candle, iv, cfg.Strategy, engine, trendEng,
                         tradeMgr, riskEng, capital, dailyDrawdown,
                         cfg.RiskPercent, metaProvider, ct,
                         conditionsCallback: condCb,
-                        ticks: candleTicks);
+                        ticks: candleTicks,
+                        executeSignalImmediately: earlyEntry,
+                        immediateExecutionCandle: earlyExecutionCandle,
+                        immediateExecutionTick: earlyTick);
                 }
 
                 // ── Envoi au chart : bougies du symbole+TF display ─────────────
@@ -1161,6 +1193,16 @@ public sealed class ReplayService
         _     => 3600,
     };
 
+    private static bool GetStrategyBool(IStrategy strategy, string key, bool defaultValue)
+        => strategy.Settings.TryGetValue(key, out var value) && value is bool b ? b : defaultValue;
+
+    private static int GetStrategyInt(IStrategy strategy, string key, int defaultValue)
+    {
+        if (!strategy.Settings.TryGetValue(key, out var value)) return defaultValue;
+        try { return Convert.ToInt32(value); }
+        catch { return defaultValue; }
+    }
+
     // ── Strategy Evaluation ───────────────────────────────────────────────────
     // Déléguée à StrategyEvaluator (ToutieTrader.Core.Engine) — source unique Live + Replay.
 
@@ -1183,5 +1225,7 @@ public sealed class ReplayService
         public Task<(double ClosePrice, DateTimeOffset CloseTime)>
             CloseOrderAsync(long ticketId, string symbol, CancellationToken ct)
             => throw new NotSupportedException("SimulatedOrderExecutor: CloseOrderAsync non appelé en Replay");
+        public Task<double> ModifyStopLossAsync(long ticketId, string symbol, double stopLoss, CancellationToken ct)
+            => Task.FromResult(stopLoss);
     }
 }

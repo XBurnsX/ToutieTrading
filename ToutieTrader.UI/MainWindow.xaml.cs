@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private readonly ReplayPage     _replayPage;
     private readonly StrategyPage   _strategyPage;
     private readonly SettingsPage   _settingsPage;
+    private readonly OptimizerPage  _optimizerPage;
 
     private          LiveService?              _live;
     private          CancellationTokenSource?  _liveCts;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
         _replayPage     = new ReplayPage(vm, replayService, settings);
         _strategyPage   = new StrategyPage(vm);
         _settingsPage   = new SettingsPage(vm);
+        _optimizerPage  = new OptimizerPage(vm);
 
         if (_live != null)
         {
@@ -65,7 +67,11 @@ public partial class MainWindow : Window
     /// Appelé depuis App.xaml.cs après que Roslyn + DuckDB ont fini de charger
     /// en arrière-plan. Injecte les services dans les pages déjà créées.
     /// </summary>
-    public void InitServices(ReplayService? replay, LiveService? live, TradeRepository? tradeRepo)
+    public void InitServices(
+        ReplayService?    replay,
+        LiveService?      live,
+        TradeRepository?  tradeRepo,
+        MT5ApiClient?     mt5 = null)
     {
         // Live service
         _live = live;
@@ -80,6 +86,7 @@ public partial class MainWindow : Window
         // Pages
         _replayPage    .InitServices(replay);
         _historiquePage.InitServices(tradeRepo, replay);
+        _optimizerPage .InitServices(replay?.Reader, mt5);
 
         UpdateTradingButton();
     }
@@ -98,6 +105,9 @@ public partial class MainWindow : Window
 
     private void NavSettings_Checked(object sender, RoutedEventArgs e)
     { if (_settingsPage != null) MainFrame.Navigate(_settingsPage); }
+
+    private void NavOptimizer_Checked(object sender, RoutedEventArgs e)
+    { if (_optimizerPage != null) MainFrame.Navigate(_optimizerPage); }
 
     private void BtnStartTrading_Click(object sender, RoutedEventArgs e)
         => ToggleLiveTrading();
