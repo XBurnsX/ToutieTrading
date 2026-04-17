@@ -1,26 +1,210 @@
 <Page x:Class="ToutieTrader.UI.Pages.HistoriquePage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ctrl="clr-namespace:ToutieTrader.UI.Controls"
       Background="{StaticResource BgBrush}"
       Title="Historique">
 
-    <Grid Margin="32,28">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>   <!-- Row 0: Header + actions -->
+            <RowDefinition Height="Auto"/>   <!-- Row 1: Stats cards -->
+            <RowDefinition Height="Auto"/>   <!-- Row 2: Filtres -->
+            <RowDefinition Height="*"/>      <!-- Row 3: DataGrid -->
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0"
-                   Text="HISTORIQUE"
-                   FontSize="11" FontWeight="SemiBold"
-                   Foreground="{StaticResource MutedBrush}"
-                   Margin="0,0,0,20"/>
+        <!-- ══ HEADER ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="32,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-        <!-- Tableau des trades live (DuckDB #2) -->
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="HISTORIQUE"
+                               FontSize="11" FontWeight="SemiBold"
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,0,0,3"/>
+                    <TextBlock x:Name="TxtSubtitle"
+                               Text="Chargement…"
+                               FontSize="20" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnExportCsv"
+                            Content="Exporter CSV"
+                            Style="{StaticResource BtnSecondary}"
+                            Margin="0,0,10,0"
+                            Click="BtnExportCsv_Click"/>
+                    <Button x:Name="BtnRefresh"
+                            Content="Actualiser"
+                            Style="{StaticResource BtnPrimary}"
+                            Click="BtnRefresh_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ══ STATS CARDS ═══════════════════════════════════════════════════════ -->
         <Border Grid.Row="1"
                 Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="1" CornerRadius="2">
+                BorderThickness="0,0,0,1"
+                Padding="32,14">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                <!-- Trades total -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="TRADES" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatTrades" Text="0"
+                               FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- Wins -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="WINS" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatWins" Text="0"
+                               FontSize="20" FontWeight="SemiBold"
+                               Foreground="{StaticResource SuccessBrush}"/>
+                </StackPanel>
+
+                <!-- Losses -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="LOSSES" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatLosses" Text="0"
+                               FontSize="20" FontWeight="SemiBold"
+                               Foreground="{StaticResource DangerBrush}"/>
+                </StackPanel>
+
+                <Rectangle Width="1" Height="44" Fill="{StaticResource BorderBrush}"
+                           Margin="0,0,28,0" VerticalAlignment="Center"/>
+
+                <!-- Win Rate -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="WIN RATE" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatWinRate" Text="—"
+                               FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- P&L Total -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="P&amp;L TOTAL" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatPnlTotal" Text="—"
+                               FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- P&L Moyen -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="P&amp;L MOYEN" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatPnlAvg" Text="—"
+                               FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <Rectangle Width="1" Height="44" Fill="{StaticResource BorderBrush}"
+                           Margin="0,0,28,0" VerticalAlignment="Center"/>
+
+                <!-- Meilleur trade -->
+                <StackPanel Margin="0,0,28,0">
+                    <TextBlock Text="MEILLEUR" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatBest" Text="—"
+                               FontSize="20" FontWeight="SemiBold"
+                               Foreground="{StaticResource SuccessBrush}"/>
+                </StackPanel>
+
+                <!-- Pire trade -->
+                <StackPanel>
+                    <TextBlock Text="PIRE" FontSize="10"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="StatWorst" Text="—"
+                               FontSize="20" FontWeight="SemiBold"
+                               Foreground="{StaticResource DangerBrush}"/>
+                </StackPanel>
+
+            </StackPanel>
+        </Border>
+
+        <!-- ══ FILTRES ════════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="2"
+                Background="{StaticResource Surface2Brush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="32,10">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                <!-- Symbole -->
+                <TextBlock Text="Symbole" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Margin="0,0,8,0"/>
+                <ComboBox x:Name="CmbSymbol" Width="100" VerticalAlignment="Center"
+                          SelectionChanged="Filter_Changed"/>
+
+                <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="16,0"/>
+
+                <!-- Direction -->
+                <TextBlock Text="Direction" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Margin="0,0,8,0"/>
+                <ComboBox x:Name="CmbDirection" Width="80" VerticalAlignment="Center"
+                          SelectionChanged="Filter_Changed">
+                    <ComboBoxItem Content="Tout" IsSelected="True"/>
+                    <ComboBoxItem Content="BUY"/>
+                    <ComboBoxItem Content="SELL"/>
+                </ComboBox>
+
+                <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="16,0"/>
+
+                <!-- Raison sortie -->
+                <TextBlock Text="Raison" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Margin="0,0,8,0"/>
+                <ComboBox x:Name="CmbReason" Width="120" VerticalAlignment="Center"
+                          SelectionChanged="Filter_Changed">
+                    <ComboBoxItem Content="Tout" IsSelected="True"/>
+                    <ComboBoxItem Content="TP"/>
+                    <ComboBoxItem Content="SL"/>
+                    <ComboBoxItem Content="Force Exit"/>
+                    <ComboBoxItem Content="Ouvert"/>
+                </ComboBox>
+
+                <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="16,0"/>
+
+                <!-- Plage de dates -->
+                <TextBlock Text="De" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Margin="0,0,8,0"/>
+                <ctrl:DarkDatePicker x:Name="DpFrom" Width="120"/>
+                <TextBlock Text="À" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" FontSize="11"
+                           Margin="10,0,8,0"/>
+                <ctrl:DarkDatePicker x:Name="DpTo" Width="120"/>
+
+                <Rectangle Width="1" Height="20" Fill="{StaticResource BorderBrush}" Margin="16,0"/>
+
+                <Button Content="Réinitialiser"
+                        Style="{StaticResource BtnSecondary}"
+                        Click="BtnResetFilters_Click"/>
+
+            </StackPanel>
+        </Border>
+
+        <!-- ══ DATAGRID ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="3"
+                Margin="0"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,0">
             <DataGrid x:Name="GridTrades"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
@@ -32,27 +216,73 @@
                       GridLinesVisibility="Horizontal"
                       HorizontalGridLinesBrush="{StaticResource BorderBrush}"
                       HeadersVisibility="Column"
+                      CanUserResizeColumns="True"
+                      CanUserSortColumns="True"
                       FontSize="12"
                       MouseDoubleClick="GridTrades_MouseDoubleClick">
+
                 <DataGrid.ColumnHeaderStyle>
                     <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background"   Value="{StaticResource Surface2Brush}"/>
-                        <Setter Property="Foreground"   Value="{StaticResource MutedBrush}"/>
-                        <Setter Property="FontSize"     Value="10"/>
-                        <Setter Property="Padding"      Value="10,8"/>
-                        <Setter Property="BorderBrush"  Value="{StaticResource BorderBrush}"/>
+                        <Setter Property="Background"      Value="{StaticResource Surface2Brush}"/>
+                        <Setter Property="Foreground"      Value="{StaticResource MutedBrush}"/>
+                        <Setter Property="FontSize"        Value="10"/>
+                        <Setter Property="Padding"         Value="10,8"/>
+                        <Setter Property="BorderBrush"     Value="{StaticResource BorderBrush}"/>
                         <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                        <Setter Property="Cursor"          Value="Hand"/>
                     </Style>
                 </DataGrid.ColumnHeaderStyle>
+
+                <!-- Coloration de la ligne : vert si profit, rouge si perte -->
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsProfit}" Value="True">
+                                <Setter Property="Background" Value="#0C180C"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsLoss}" Value="True">
+                                <Setter Property="Background" Value="#180C0C"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Symbole"   Binding="{Binding Symbol}"     Width="80"/>
-                    <DataGridTextColumn Header="Direction" Binding="{Binding Direction}"   Width="70"/>
-                    <DataGridTextColumn Header="Entrée"    Binding="{Binding EntryPrice, StringFormat=N5}"  Width="90"/>
-                    <DataGridTextColumn Header="SL"        Binding="{Binding Sl, StringFormat=N5}"          Width="90"/>
-                    <DataGridTextColumn Header="TP"        Binding="{Binding Tp, StringFormat=N5}"          Width="90"/>
-                    <DataGridTextColumn Header="P/L"       Binding="{Binding ProfitLoss, StringFormat=N2}"  Width="80"/>
-                    <DataGridTextColumn Header="Raison"    Binding="{Binding ExitReason}"  Width="*"/>
-                    <DataGridTextColumn Header="Date entrée (Québec)" Binding="{Binding EntryTime, StringFormat=\{0:yyyy-MM-dd HH:mm\}}" Width="150"/>
+                    <DataGridTextColumn Header="Symbole"   Binding="{Binding Symbol}"     Width="90"/>
+                    <DataGridTextColumn Header="Strategy"  Binding="{Binding Strategy}"   Width="140"/>
+                    <DataGridTextColumn Header="Dir"       Binding="{Binding Direction}"  Width="55"/>
+                    <DataGridTextColumn Header="Lot"       Binding="{Binding LotSize}"    Width="55"/>
+                    <DataGridTextColumn Header="Entrée"    Binding="{Binding EntryPrice}" Width="95"/>
+                    <DataGridTextColumn Header="Sortie"    Binding="{Binding ExitPrice}"  Width="95"/>
+                    <DataGridTextColumn Header="SL"        Binding="{Binding Sl}"         Width="90"/>
+                    <DataGridTextColumn Header="TP"        Binding="{Binding Tp}"         Width="90"/>
+
+                    <!-- P/L coloré avec DataTemplate -->
+                    <DataGridTemplateColumn Header="P/L $" Width="95" SortMemberPath="RawProfitLoss">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock x:Name="TbPl"
+                                           Text="{Binding ProfitLoss}"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Margin="10,0"
+                                           VerticalAlignment="Center"/>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsProfit}" Value="True">
+                                        <Setter TargetName="TbPl" Property="Foreground" Value="#00C85A"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsLoss}" Value="True">
+                                        <Setter TargetName="TbPl" Property="Foreground" Value="#FF3333"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTextColumn Header="Frais $"   Binding="{Binding Fees}"       Width="70"/>
+                    <DataGridTextColumn Header="Raison"    Binding="{Binding ExitReason}" Width="130"/>
+                    <DataGridTextColumn Header="Date entrée"  Binding="{Binding EntryTime}"  Width="130"/>
+                    <DataGridTextColumn Header="Date sortie"  Binding="{Binding ExitTime}"   Width="130"/>
                 </DataGrid.Columns>
             </DataGrid>
         </Border>

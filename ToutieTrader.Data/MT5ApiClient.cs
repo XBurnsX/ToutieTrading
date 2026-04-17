@@ -100,6 +100,12 @@ public sealed class MT5ApiClient : IDisposable
             Equity          = dto.Equity,
             DrawdownPercent = dto.DrawdownPercent,
             Currency        = dto.Currency,
+            Profit          = dto.Profit,
+            Margin          = dto.Margin,
+            FreeMargin      = dto.FreeMargin,
+            MarginLevel     = dto.MarginLevel,
+            Login           = dto.Login,
+            Server          = dto.Server,
         };
     }
 
@@ -110,7 +116,8 @@ public sealed class MT5ApiClient : IDisposable
         string symbol, string timeframe, int count)
     {
         using var cts = Timeout(10);
-        var url = $"{_baseUrl}/candles?symbol={symbol}&timeframe={timeframe}&count={count}";
+        var url = $"{_baseUrl}/candles?symbol={Uri.EscapeDataString(symbol)}"
+                + $"&timeframe={Uri.EscapeDataString(timeframe)}&count={count}";
         var dtos = await _http.GetFromJsonAsync<List<CandleDto>>(
             url, _jsonOpts, cts.Token).ConfigureAwait(false) ?? [];
 
@@ -125,7 +132,8 @@ public sealed class MT5ApiClient : IDisposable
         using var cts = Timeout(10);
         var fromIso = TimeZoneHelper.FormatIso(from);
         var toIso   = TimeZoneHelper.FormatIso(to);
-        var url = $"{_baseUrl}/candles?symbol={symbol}&timeframe={timeframe}"
+        var url = $"{_baseUrl}/candles?symbol={Uri.EscapeDataString(symbol)}"
+                + $"&timeframe={Uri.EscapeDataString(timeframe)}"
                 + $"&from={Uri.EscapeDataString(fromIso)}&to={Uri.EscapeDataString(toIso)}";
 
         var dtos = await _http.GetFromJsonAsync<List<CandleDto>>(
@@ -220,6 +228,29 @@ public sealed class MT5ApiClient : IDisposable
             TradeCalcMode     = dto.TradeCalcMode,
             Path              = dto.Path,
         };
+    }
+
+    // ─── GET /download_progress ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Retourne le progrès courant de ensure_candles_range (mis à jour côté Python
+    /// symbole par symbole). Timeout 3s, ne throw jamais.
+    /// </summary>
+    public async Task<(string Current, int Index, int Total)> GetDownloadProgressAsync(
+        CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(3));
+        try
+        {
+            var dto = await _http.GetFromJsonAsync<DownloadProgressDto>(
+                $"{_baseUrl}/download_progress", _jsonOpts, cts.Token).ConfigureAwait(false);
+            return (dto?.Current ?? "", dto?.Index ?? 0, dto?.Total ?? 0);
+        }
+        catch
+        {
+            return ("", 0, 0);
+        }
     }
 
     // ─── POST /ensure_candles_range ───────────────────────────────────────────
@@ -470,7 +501,13 @@ public sealed class MT5ApiClient : IDisposable
         [property: JsonPropertyName("balance")]          double Balance,
         [property: JsonPropertyName("equity")]           double Equity,
         [property: JsonPropertyName("drawdown_percent")] double DrawdownPercent,
-        [property: JsonPropertyName("currency")]         string Currency);
+        [property: JsonPropertyName("currency")]         string Currency,
+        [property: JsonPropertyName("profit")]           double Profit = 0,
+        [property: JsonPropertyName("margin")]           double Margin = 0,
+        [property: JsonPropertyName("free_margin")]      double FreeMargin = 0,
+        [property: JsonPropertyName("margin_level")]     double MarginLevel = 0,
+        [property: JsonPropertyName("login")]            long Login = 0,
+        [property: JsonPropertyName("server")]           string Server = "");
 
     private sealed record CandleDto(
         [property: JsonPropertyName("time")]   string Time,
@@ -537,6 +574,13 @@ public sealed class MT5ApiClient : IDisposable
         [property: JsonPropertyName("ask")]                 double Ask,
         [property: JsonPropertyName("trade_calc_mode")]     int    TradeCalcMode = 0,
         [property: JsonPropertyName("path")]                string Path          = "");
+
+    // ─── /download_progress DTO ───────────────────────────────────────────────
+
+    private sealed record DownloadProgressDto(
+        [property: JsonPropertyName("current")] string Current,
+        [property: JsonPropertyName("index")]   int    Index,
+        [property: JsonPropertyName("total")]   int    Total);
 
     // ─── /ensure_candles_range DTOs ───────────────────────────────────────────
 

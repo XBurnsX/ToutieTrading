@@ -235,7 +235,46 @@ public sealed class ReplayService
         IStrategy? strategy, CancellationToken ct)
     {
         var snapshot = _liveAllBySymbolAndTf;
-        if (snapshot == null || !snapshot.TryGetValue(symbol, out var tfMap)) return null;
+        if (snapshot == null || !snapshot.TryGetValue(symbol, out _)) return null;
+        return BuildHistoryJsonFromSnapshot(symbol, tf, from, upTo, strategy, ct, snapshot);
+    }
+
+    /// <summary>
+    /// Même rendu que BuildHistoryJsonUpTo mais charge les bougies depuis DuckDB.
+    /// Utilisé par la Page Historique où les données live ne sont pas chargées en mémoire
+    /// (aucun replay actif). Charge uniquement le TF du chart + H1 + H4 + D pour les pivots.
+    /// </summary>
+    public string? BuildHistoryJsonFromDb(
+        string symbol, string tf, DateTimeOffset from, DateTimeOffset upTo,
+        IStrategy? strategy, CancellationToken ct)
+    {
+        // TFs minimum : chart TF + H1 + H4 + D pour les pivots Ichimoku
+        var tfsNeeded = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { tf, "H1", "H4", "D" };
+        var loadFrom  = from.AddDays(-60);   // 60 jours de warmup D + Ichimoku
+        var queries   = tfsNeeded.Select(t => (t, loadFrom, upTo)).ToList();
+
+        try
+        {
+            var batch = _reader.GetAllCandlesBatch([symbol], queries);
+            if (!batch.TryGetValue(symbol, out var tfMap) || !tfMap.ContainsKey(tf))
+                return null;
+            return BuildHistoryJsonFromSnapshot(symbol, tf, from, upTo, strategy, ct, batch);
+        }
+        catch (Exception ex)
+        {
+            ReplayLogger.LogException("BuildHistoryJsonFromDb", ex);
+            return null;
+        }
+    }
+
+    // ── Rendu commun (mémoire OU DuckDB) ─────────────────────────────────────
+
+    private string? BuildHistoryJsonFromSnapshot(
+        string symbol, string tf, DateTimeOffset from, DateTimeOffset upTo,
+        IStrategy? strategy, CancellationToken ct,
+        Dictionary<string, Dictionary<string, List<Candle>>> snapshot)
+    {
+        if (!snapshot.TryGetValue(symbol, out var tfMap)) return null;
         if (!tfMap.TryGetValue(tf, out var chartCandlesFull) || chartCandlesFull.Count == 0)
             return null;
 
@@ -391,25 +430,56 @@ public sealed class ReplayService
         var requiredTfs = cfg.Strategy?.RequiredTimeframes is { Count: > 0 } reqs
             ? reqs
             : new List<string> { cfg.Timeframe };
-        if (_reader.HasFullCoverage(cfg.Symbol, requiredTfs, cfg.From, cfg.To))
+
+        OnLoadingStatus?.Invoke($"Vérification cache local ({AvailableSymbols.Count} symboles)…");
+        bool hasCache = _reader.HasFullCoverage(AvailableSymbols, requiredTfs, cfg.From, cfg.To);
+
+        if (hasCache)
         {
-            ReplayLogger.Log($"FAST PATH: DB locale couvre déjà {cfg.Symbol} × [{string.Join(",", requiredTfs)}] sur la range — skip ensure_candles_range");
-            OnLoadingStatus?.Invoke("Données déjà en cache local — démarrage instantané.");
+            ReplayLogger.Log($"FAST PATH: DB locale couvre déjà {AvailableSymbols.Count} symbols × [{string.Join(",", requiredTfs)}] sur la range — skip ensure_candles_range");
+            OnLoadingStatus?.Invoke("Cache local OK — chargement DuckDB…");
         }
         else if (_mt5 != null)
         {
             try
             {
                 ReplayLogger.Log("Starting MT5 EnsureCandlesRangeAsync...");
-                OnLoadingStatus?.Invoke("Téléchargement des données MT5… (première run : ça peut prendre quelques minutes)");
-                var result = await _mt5.EnsureCandlesRangeAsync(cfg.From, cfg.To, AllTimeframes, ct)
-                    .ConfigureAwait(false);
+                OnLoadingStatus?.Invoke("Téléchargement MT5 en cours…");
+
+                // Lance le download et le polling de progrès en parallèle.
+                // Le endpoint Python /ensure_candles_range tourne dans un thread pool
+                // (def, pas async def) → l'event loop Python reste libre pour répondre
+                // aux requêtes /download_progress toutes les ~1s.
+                var downloadTask = _mt5.EnsureCandlesRangeAsync(cfg.From, cfg.To, AllTimeframes, ct);
+
+                using var pollCts = new CancellationTokenSource();
+                var mt5Client     = _mt5;   // capture pour la lambda
+                var loadingStatus = OnLoadingStatus; // capture event
+                var pollTask      = Task.Run(async () =>
+                {
+                    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+                    while (await timer.WaitForNextTickAsync(pollCts.Token).ConfigureAwait(false))
+                    {
+                        try
+                        {
+                            var (current, index, total) =
+                                await mt5Client.GetDownloadProgressAsync(pollCts.Token).ConfigureAwait(false);
+                            if (total > 0 && !string.IsNullOrEmpty(current))
+                                loadingStatus?.Invoke($"Téléchargement MT5 — {current} ({index}/{total})…");
+                        }
+                        catch { /* réseau ou annulation — silencieux */ }
+                    }
+                }, pollCts.Token);
+
+                var result = await downloadTask.ConfigureAwait(false);
+                pollCts.Cancel();
+                try { await pollTask.ConfigureAwait(false); } catch (OperationCanceledException) { }
 
                 ReplayLogger.Log($"EnsureCandlesRange done: {result.TotalSymbols} symbols, {result.TotalInserted} inserted, {result.TotalCached} cached, {result.ElapsedSec:F1}s");
                 OnLoadingStatus?.Invoke(
-                    $"MT5 → DuckDB : {result.TotalSymbols} symbols, " +
+                    $"MT5 → DuckDB : {result.TotalSymbols} symboles, " +
                     $"{result.TotalInserted:N0} nouvelles bougies, " +
-                    $"{result.TotalCached:N0} en cache ({result.ElapsedSec:F1}s)");
+                    $"{result.TotalCached:N0} en cache ({result.ElapsedSec:F1}s) — chargement DuckDB…");
 
                 RefreshSymbols();
                 ReplayLogger.Log($"After RefreshSymbols: {AvailableSymbols.Count} symbols");
@@ -417,12 +487,13 @@ public sealed class ReplayService
             catch (Exception ex)
             {
                 ReplayLogger.LogException("EnsureCandlesRangeAsync", ex);
-                OnLoadingStatus?.Invoke($"Erreur MT5 fetch : {ex.Message}. Tentative de lecture DB locale…");
+                OnLoadingStatus?.Invoke($"Erreur MT5 : {ex.Message} — lecture DB locale…");
             }
         }
         else
         {
             ReplayLogger.Log("_mt5 is null — skipping lazy fetch");
+            OnLoadingStatus?.Invoke("Chargement DuckDB…");
         }
 
         // ── Mode Tick : streaming load (jour 1 sync, reste en background) ─────
@@ -430,15 +501,17 @@ public sealed class ReplayService
         // pour passer en référence au BG task. Le fetch + load du jour 1 est fait
         // juste après LoadAllSymbolsAllTfsAsync.
 
-        OnLoadingStatus?.Invoke("Chargement DuckDB…");
-
         // Charger TOUS les symboles × TOUS les TFs en parallèle
         Dictionary<string, Dictionary<string, List<Candle>>> allBySymbolAndTf;
         try
         {
             ReplayLogger.Log("Loading all symbols/TFs from DuckDB...");
+            OnLoadingStatus?.Invoke($"DuckDB — {AvailableSymbols.Count} symboles × {AllTimeframes.Length} TFs (1 connexion, {AllTimeframes.Length} requêtes)…");
             allBySymbolAndTf = await LoadAllSymbolsAllTfsAsync(cfg.From, cfg.To, ct);
             ReplayLogger.Log($"Loaded {allBySymbolAndTf.Count} symbols from DuckDB");
+
+            int totalCandles = allBySymbolAndTf.Values.Sum(t => t.Values.Sum(c => c.Count));
+            OnLoadingStatus?.Invoke($"DuckDB OK — {allBySymbolAndTf.Count} symboles, {totalCandles:N0} bougies…");
             foreach (var kvp in allBySymbolAndTf)
                 ReplayLogger.Log($"  {kvp.Key}: {string.Join(", ", kvp.Value.Select(t => $"{t.Key}={t.Value.Count}"))}");
         }
@@ -1020,41 +1093,45 @@ public sealed class ReplayService
         ReplayLogger.Log($"Day {dayIndex+1} loaded in memory: +{appended:N0} ticks (horizon={_tickLoadedDayCount})");
     }
 
-    /// <summary>Charge tous les symboles × tous les TFs standards en parallèle.</summary>
+    /// <summary>
+    /// Charge tous les symboles × tous les TFs standards en une seule connexion DuckDB.
+    /// 1 requête par TF (6 total) au lieu de N connexions concurrentes (cause du gel 39s).
+    /// </summary>
     private async Task<Dictionary<string, Dictionary<string, List<Candle>>>>
         LoadAllSymbolsAllTfsAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
     {
-        var result  = new Dictionary<string, Dictionary<string, List<Candle>>>(StringComparer.OrdinalIgnoreCase);
         var symbols = AvailableSymbols.ToList();
-        if (symbols.Count == 0) return result;
+        if (symbols.Count == 0)
+            return new Dictionary<string, Dictionary<string, List<Candle>>>(StringComparer.OrdinalIgnoreCase);
 
-        // Une Task par symbole — 1 seule connexion DuckDB par symbole pour tous les TFs
         ReplayLogger.Log($"LoadAllSymbolsAllTfsAsync: {symbols.Count} symbols × {AllTimeframes.Length} TFs, from={from}, to={to}");
+
         var tfQueries = AllTimeframes
             .Select(tf => (Tf: tf, From: from.AddSeconds(-100 * TfSeconds(tf)), To: to))
             .ToList();
 
-        var tasks = symbols.Select(sym => Task.Run(() =>
+        // Connexion unique, 1 requête par TF — élimine la contention DuckDB
+        return await Task.Run(() =>
         {
-            if (ct.IsCancellationRequested) return (sym, new Dictionary<string, List<Candle>>());
+            if (ct.IsCancellationRequested)
+                return new Dictionary<string, Dictionary<string, List<Candle>>>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                var byTf = _reader.GetCandlesForSymbol(sym, tfQueries);
-                return (sym, byTf);
+                return _reader.GetAllCandlesBatch(
+                    symbols,
+                    tfQueries,
+                    progressCallback: (tf, n) =>
+                    {
+                        ReplayLogger.Log($"  Loaded TF={tf}: {n:N0} rows");
+                        OnLoadingStatus?.Invoke($"DuckDB {tf} chargé — {n:N0} bougies…");
+                    });
             }
             catch (Exception ex)
             {
-                ReplayLogger.Log($"GetCandlesForSymbol({sym}) FAILED: {ex.GetType().Name}: {ex.Message}");
-                return (sym, new Dictionary<string, List<Candle>>());
+                ReplayLogger.Log($"GetAllCandlesBatch FAILED: {ex.GetType().Name}: {ex.Message}");
+                return new Dictionary<string, Dictionary<string, List<Candle>>>(StringComparer.OrdinalIgnoreCase);
             }
-        }, ct)).ToList();
-
-        var completed = await Task.WhenAll(tasks).ConfigureAwait(false);
-        foreach (var (sym, byTf) in completed)
-        {
-            if (byTf.Count > 0) result[sym] = byTf;
-        }
-        return result;
+        }, ct).ConfigureAwait(false);
     }
 
     /// <summary>Évalue une liste de conditions en utilisant le bon TF pour chaque condition.</summary>

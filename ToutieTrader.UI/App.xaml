@@ -93,13 +93,18 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Zone cliquable -->
+                            <!-- Zone cliquable : template transparent pour ne jamais
+                                 écraser le fond sombre quand IsEnabled=False -->
                             <ToggleButton Focusable="False"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
                                               RelativeSource={RelativeSource TemplatedParent}}"
-                                          ClickMode="Press"
-                                          Background="Transparent"
-                                          BorderThickness="0"/>
+                                          ClickMode="Press">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Rectangle Fill="Transparent"/>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
 
                             <!-- Popup sombre -->
                             <Popup x:Name="PART_Popup"

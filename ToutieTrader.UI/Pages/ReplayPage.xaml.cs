@@ -25,18 +25,23 @@ namespace ToutieTrader.UI.Pages;
 /// </summary>
 public partial class ReplayPage : Page
 {
-    private readonly MainViewModel   _vm;
-    private readonly ReplayService?  _replay;
+    private readonly MainViewModel        _vm;
+    private          ReplayService?       _replay;
     private readonly Services.AppSettings? _settings;
 
     private int _speed = 1;
     private CancellationTokenSource? _replayCts;
     private CancellationTokenSource? _histCts;
+    private Task? _replayTask;
     private bool _chartReady;
     private bool _replayScrollEnabled;
     private bool _replayPaused;
     // Bloque le flush de la queue pendant le rechargement de l'historique mid-replay
     private bool _historyPending;
+
+    // Timer overlay — affiche le temps écoulé pendant le chargement
+    private readonly DispatcherTimer _loadingTimer;
+    private DateTime _loadingStart;
 
     // Queue de messages chart — flush toutes les 50ms pour ne pas saturer le Dispatcher
     private readonly ConcurrentQueue<string> _chartQueue = new();
@@ -60,6 +65,17 @@ public partial class ReplayPage : Page
         _chartTimer.Tick += (_, _) => FlushChartQueue();
         _chartTimer.Start();
 
+        // Timer overlay : met à jour le temps écoulé chaque seconde pendant le chargement
+        _loadingTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _loadingTimer.Tick += (_, _) =>
+        {
+            var elapsed = DateTime.Now - _loadingStart;
+            LoadingElapsed.Text = $"{(int)elapsed.TotalSeconds}s écoulées";
+        };
+
         DpFrom.SelectedDate = vm.ReplayFrom;
         DpTo.SelectedDate   = vm.ReplayTo;
         TxtCapital.Text     = vm.ReplayCapital;
@@ -73,36 +89,16 @@ public partial class ReplayPage : Page
             _vm.ReplayCapital = TxtCapital.Text;  // déclenche auto-save via App.xaml.cs
         };
 
-        // Peupler le dropdown symbole
-        if (_replay != null)
-        {
-            foreach (var sym in _replay.AvailableSymbols)
-                CmbSymbol.Items.Add(sym);
+        // CmbSymbol et events ReplayService : injectés plus tard via InitServices()
+        // (ReplayService est chargé en background — pas encore dispo au constructeur)
 
-            // Restaurer le symbole sauvegardé, sinon premier de la liste
-            if (!string.IsNullOrEmpty(settings?.ReplaySymbol) &&
-                CmbSymbol.Items.Contains(settings.ReplaySymbol))
-                CmbSymbol.SelectedItem = settings.ReplaySymbol;
-            else if (CmbSymbol.Items.Count > 0)
-                CmbSymbol.SelectedIndex = 0;
-        }
-
-        // Peupler le dropdown strategy
-        foreach (var s in vm.Strategies)
-            CmbStrategy.Items.Add(s.Name);
-
-        // Synchroniser avec la strategy déjà sélectionnée dans le ViewModel
-        if (vm.SelectedStrategy != null)
-            CmbStrategy.SelectedItem = vm.SelectedStrategy.Name;
-        else if (CmbStrategy.Items.Count > 0)
-            CmbStrategy.SelectedIndex = 0;
-
+        // CmbStrategy : strategies chargées en background → le handler PropertyChanged
+        // gère la mise à jour quand vm.Strategies arrive.
         CmbStrategy.SelectionChanged += CmbStrategy_SelectionChanged;
 
         // ── Restaurer TF + vitesse depuis les settings sauvegardés ────────────
         if (settings != null)
         {
-            // Timeframe
             foreach (ComboBoxItem item in CmbTimeframe.Items)
             {
                 if (item.Content?.ToString() == settings.ReplayTimeframe)
@@ -112,7 +108,6 @@ public partial class ReplayPage : Page
                 }
             }
 
-            // Vitesse
             _speed = settings.ReplaySpeed;
             var speedMap = new Dictionary<int, RadioButton>
             {
@@ -127,7 +122,7 @@ public partial class ReplayPage : Page
                 rb.IsChecked = true;
         }
 
-        // Suivre les changements de strategy depuis la page Strategy
+        // Suivre les changements de strategy et de la liste strategies (chargées en BG)
         vm.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainViewModel.SelectedStrategy) && vm.SelectedStrategy != null)
@@ -145,19 +140,6 @@ public partial class ReplayPage : Page
                     CmbStrategy.SelectedItem = vm.SelectedStrategy.Name;
             }
         };
-
-        // Abonnements callbacks ReplayService
-        if (_replay != null)
-        {
-            _replay.OnCandleProcessed     += OnCandleProcessed;
-            _replay.OnProgress            += OnProgress;
-            _replay.OnTradeOpened         += OnTradeOpened;
-            _replay.OnTradeClosed         += OnTradeClosed;
-            _replay.OnStatsUpdate         += OnStatsUpdate;
-            _replay.OnConditionsEvaluated += OnConditionsEvaluated;
-            _replay.OnTrendsUpdate        += OnTrendsUpdate;
-            _replay.OnLoadingStatus       += OnLoadingStatus;
-        }
 
         // Changer symbole ou TF : routé selon l'état du replay
         CmbSymbol.SelectionChanged    += CmbSymbol_SelectionChanged;
@@ -216,6 +198,44 @@ public partial class ReplayPage : Page
             // L'utilisateur doit avoir le temps de configurer ses settings sans
             // qu'aucune donnée ne défile ou ne s'affiche.
         };
+        UpdateButtonStates();
+    }
+
+    // ── Injection tardive des services (chargés en background par App.xaml.cs) ─
+
+    /// <summary>
+    /// Appelé depuis MainWindow.InitServices après que DuckDB et ReplayService
+    /// sont prêts (background task terminé). La page était déjà affichée avec _replay=null.
+    /// </summary>
+    public void InitServices(ReplayService? replay)
+    {
+        if (replay == null || _replay != null) return;   // déjà injecté ou pas dispo
+
+        _replay = replay;
+
+        // Abonnements événements ReplayService
+        _replay.OnCandleProcessed     += OnCandleProcessed;
+        _replay.OnProgress            += OnProgress;
+        _replay.OnTradeOpened         += OnTradeOpened;
+        _replay.OnTradeClosed         += OnTradeClosed;
+        _replay.OnStatsUpdate         += OnStatsUpdate;
+        _replay.OnConditionsEvaluated += OnConditionsEvaluated;
+        _replay.OnTrendsUpdate        += OnTrendsUpdate;
+        _replay.OnLoadingStatus       += OnLoadingStatus;
+
+        // Peupler le dropdown symbole
+        if (CmbSymbol.Items.Count == 0)
+        {
+            foreach (var sym in _replay.AvailableSymbols)
+                CmbSymbol.Items.Add(sym);
+
+            if (!string.IsNullOrEmpty(_settings?.ReplaySymbol) &&
+                CmbSymbol.Items.Contains(_settings.ReplaySymbol))
+                CmbSymbol.SelectedItem = _settings.ReplaySymbol;
+            else if (CmbSymbol.Items.Count > 0)
+                CmbSymbol.SelectedIndex = 0;
+        }
+
         UpdateButtonStates();
     }
 
@@ -385,12 +405,20 @@ public partial class ReplayPage : Page
         {
             if (string.IsNullOrEmpty(message))
             {
+                _loadingTimer.Stop();
                 LoadingOverlay.Visibility = System.Windows.Visibility.Collapsed;
+                LoadingElapsed.Text       = "";
             }
             else
             {
-                LoadingText.Text          = message;
-                LoadingOverlay.Visibility = System.Windows.Visibility.Visible;
+                LoadingText.Text = message;
+                if (LoadingOverlay.Visibility != System.Windows.Visibility.Visible)
+                {
+                    LoadingOverlay.Visibility = System.Windows.Visibility.Visible;
+                    _loadingStart             = DateTime.Now;
+                    LoadingElapsed.Text       = "0s écoulées";
+                    _loadingTimer.Start();
+                }
             }
         });
     }
@@ -531,7 +559,7 @@ public partial class ReplayPage : Page
 
     // ── Boutons ───────────────────────────────────────────────────────────────
 
-    private void BtnStart_Click(object sender, RoutedEventArgs e)
+    private async void BtnStart_Click(object sender, RoutedEventArgs e)
     {
         ReplayLogger.Log("========== BtnStart_Click ==========");
         ReplayLogger.Log($"CanStartReplay={_vm.CanStartReplay} | IsLiveRunning={_vm.IsLiveRunning} | " +
@@ -569,6 +597,14 @@ public partial class ReplayPage : Page
             return;
         }
         ReplayLogger.Log("All guards passed → launching ReplayService.StartAsync in background Task");
+
+        if (_replayTask is { IsCompleted: false })
+        {
+            ReplayLogger.Log("Previous replay task still stopping → waiting before new start");
+            _replayPaused = false;
+            _replayCts?.Cancel();
+            await WaitForReplayTaskAsync();
+        }
 
         _vm.ReplayCapital = TxtCapital.Text;
         _histCts?.Cancel();                     // annuler un chargement d'historique en cours
@@ -616,10 +652,24 @@ public partial class ReplayPage : Page
         _trades.Clear();
         GridReplayTrades.ItemsSource = null;
 
-        // Wipe DB replay (session précédente) avant de démarrer — clean slate.
-        _ = _replay.WipeReplayTradesAsync();
+        // Afficher l'overlay IMMÉDIATEMENT — avant le Task.Run, avant HasFullCoverage,
+        // avant tout. L'utilisateur voit que ça travaille dès le clic sur Start.
+        LoadingText.Text          = "Vérification du cache local…";
+        LoadingElapsed.Text       = "0s écoulées";
+        LoadingOverlay.Visibility = Visibility.Visible;
+        _loadingStart             = DateTime.Now;
+        _loadingTimer.Start();
 
-        _ = Task.Run(async () =>
+        // Wipe DB replay (session précédente) avant de démarrer — clean slate.
+        await WipeReplayDbAsync("Replay start");
+
+        // Second clear : pendant l'await ci-dessus, le Dispatcher peut avoir exécuté
+        // des Dispatcher.InvokeAsync résiduels de la session précédente (ex: OnTradeOpened
+        // d'avril) qui ont re-inséré des trades. On nettoie après le yield.
+        _trades.Clear();
+        GridReplayTrades.ItemsSource = null;
+
+        _replayTask = Task.Run(async () =>
             {
                 ReplayLogger.Log("Task.Run → calling _replay.StartAsync");
                 try
@@ -630,7 +680,6 @@ public partial class ReplayPage : Page
                 catch (OperationCanceledException)
                 {
                     ReplayLogger.Log("StartAsync cancelled by user");
-                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -639,7 +688,9 @@ public partial class ReplayPage : Page
                     _ = Dispatcher.InvokeAsync(() =>
                         _vm.ReportConnectionError($"[Replay] {msg}"));
                 }
-            })
+            });
+
+        _ = _replayTask
             .ContinueWith(_ =>
             {
                 ReplayLogger.Log("ContinueWith → IsReplayRunning = false");
@@ -668,7 +719,7 @@ public partial class ReplayPage : Page
         }
     }
 
-    private void BtnStop_Click(object sender, RoutedEventArgs e)
+    private async void BtnStop_Click(object sender, RoutedEventArgs e)
     {
         _replayPaused        = false;   // débloque le loop avant l'annulation
         _replayCts?.Cancel();
@@ -678,14 +729,16 @@ public partial class ReplayPage : Page
         ProgressBar.Value    = 0;
         TxtProgressDate.Text = "—";
 
+        await WaitForReplayTaskAsync();
+
         // Wipe la DB replay_trades + la liste UI — session terminée.
-        _ = _replay?.WipeReplayTradesAsync();
+        await WipeReplayDbAsync("Replay stop");
         GridReplayTrades.ItemsSource = null;
         _trades.Clear();
         GridReplayTrades.ItemsSource = _trades;
     }
 
-    private void BtnReset_Click(object sender, RoutedEventArgs e)
+    private async void BtnReset_Click(object sender, RoutedEventArgs e)
     {
         if (_vm.IsReplayRunning) return;
 
@@ -696,9 +749,47 @@ public partial class ReplayPage : Page
 
         _trades.Clear();
         GridReplayTrades.ItemsSource = null;
+        await WipeReplayDbAsync("Replay reset");
+
+        // Second clear : mêmes callbacks résiduels possibles pendant l'await.
+        _trades.Clear();
+        GridReplayTrades.ItemsSource = null;
 
         if (_chartReady)
             Chart.CoreWebView2.PostWebMessageAsString("{\"type\":\"reset\"}");
+    }
+
+    private async Task WaitForReplayTaskAsync()
+    {
+        var task = _replayTask;
+        if (task == null || task.IsCompleted) return;
+
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+            ReplayLogger.Log("Replay task cancelled while waiting.");
+        }
+        catch (Exception ex)
+        {
+            ReplayLogger.LogException("WaitForReplayTaskAsync", ex);
+        }
+    }
+
+    private async Task WipeReplayDbAsync(string source)
+    {
+        if (_replay == null) return;
+
+        try
+        {
+            await _replay.WipeReplayTradesAsync();
+        }
+        catch (Exception ex)
+        {
+            ReplayLogger.LogException($"WipeReplayDbAsync {source}", ex);
+        }
     }
 
     // ── Trade Popup (double-clic sur la liste) ────────────────────────────────
@@ -755,6 +846,8 @@ public partial class ReplayPage : Page
         DpFrom.IsEnabled       = !running;
         DpTo.IsEnabled         = !running;
         TxtCapital.IsEnabled   = !running;
+        CmbStrategy.IsEnabled  = !running;
+        ChkTickMode.IsEnabled  = !running;
         // Symbol et Timeframe restent actifs pendant le replay :
         //   - Tous les symboles × tous les TFs sont chargés en mémoire au Start
         //   - Changement = switch d'affichage instantané, le backtest continue

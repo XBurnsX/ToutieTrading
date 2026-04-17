@@ -143,56 +143,88 @@ public sealed class DuckDBReader
     }
 
     /// <summary>
-    /// Vérifie rapidement si la DB couvre déjà la range demandée pour CE symbol
+    /// Vérifie rapidement si la DB couvre déjà la range demandée pour TOUS les symboles
     /// sur TOUS les timeframes fournis. Utilisé pour skip ensure_candles_range
     /// quand les données sont déjà en cache local.
     ///
-    /// Retourne true seulement si pour CHAQUE tf : MIN(time) <= from ET MAX(time) >= to.
-    /// Retourne false dès qu'un TF manque ou ne couvre pas la range.
+    /// Pour chaque paire (symbol, tf) : le nombre de bougies dans [from, to] doit atteindre
+    /// au moins 60 % du nombre théorique attendu (jours × 5/7 × bougies/jour de trading).
+    /// Ce seuil absorbe les jours fériés et micro-gaps sans faux positifs.
+    ///
+    /// Retourne false dès qu'une paire manque ou est sous-représentée.
     /// </summary>
     public bool HasFullCoverage(
-        string symbol, IEnumerable<string> timeframes,
+        IEnumerable<string> symbols, IEnumerable<string> timeframes,
         DateTimeOffset from, DateTimeOffset to)
     {
         try
         {
-            using var con = OpenRead();
-            foreach (var tf in timeframes)
-            {
-                using var cmd = con.CreateCommand();
-                // On compte les candles qui tombent DANS la range demandée.
-                // Pas de comparaison stricte sur MIN/MAX — les TFs hauts (H4/D) ne
-                // s'alignent jamais pile aux bornes choisies par l'utilisateur, donc
-                // exiger dbMin <= from causerait toujours un faux miss de cache.
-                cmd.CommandText = """
-                    SELECT COUNT(*)
-                    FROM candles
-                    WHERE symbol = $symbol
-                      AND timeframe = $tf
-                      AND time >= $from
-                      AND time <= $to
-                    """;
-                cmd.Parameters.Add(new DuckDBParameter("symbol", symbol));
-                cmd.Parameters.Add(new DuckDBParameter("tf",     tf));
-                cmd.Parameters.Add(new DuckDBParameter("from",   from.UtcDateTime));
-                cmd.Parameters.Add(new DuckDBParameter("to",     to.UtcDateTime));
+            var symList = symbols.ToList();
+            var tfList  = timeframes.ToList();
+            if (symList.Count == 0 || tfList.Count == 0) return false;
 
-                using var r = cmd.ExecuteReader();
-                if (!r.Read()) return false;
-                long count = r.GetInt64(0);
-                // Au moins 1 candle dans la range → on considère que ce TF est cached.
-                // (Si l'utilisateur veut vraiment un fetch complet il peut toujours le
-                // forcer manuellement via le bridge.)
-                if (count == 0) return false;
+            double totalDays = (to - from).TotalDays;
+            if (totalDays <= 0) return false;
+
+            // IN clause paramétrique ($s0, $s1, … / $t0, $t1, …)
+            var symIn = string.Join(",", symList.Select((_, i) => $"$s{i}"));
+            var tfIn  = string.Join(",", tfList .Select((_, i) => $"$t{i}"));
+
+            using var con = OpenRead();
+            using var cmd = con.CreateCommand();
+
+            cmd.CommandText = $"""
+                SELECT symbol, timeframe, COUNT(*) AS n
+                FROM candles
+                WHERE symbol    IN ({symIn})
+                  AND timeframe IN ({tfIn})
+                  AND time >= $from
+                  AND time <= $to
+                GROUP BY symbol, timeframe
+                """;
+
+            for (int i = 0; i < symList.Count; i++)
+                cmd.Parameters.Add(new DuckDBParameter($"s{i}", symList[i]));
+            for (int i = 0; i < tfList.Count; i++)
+                cmd.Parameters.Add(new DuckDBParameter($"t{i}", tfList[i]));
+            cmd.Parameters.Add(new DuckDBParameter("from", from.UtcDateTime));
+            cmd.Parameters.Add(new DuckDBParameter("to",   to.UtcDateTime));
+
+            // key = "SYMBOL|TF" — case-insensitive
+            var counts = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                counts[$"{r.GetString(0)}|{r.GetString(1)}"] = r.GetInt64(2);
+
+            foreach (var sym in symList)
+            foreach (var tf in tfList)
+            {
+                if (!counts.TryGetValue($"{sym}|{tf}", out long count)) return false;
+
+                // Seuil 60 % du nombre de bougies théoriques sur des jours de trading
+                long expected = (long)(totalDays * 5.0 / 7.0 * CandlesPerTradingDay(tf) * 0.60);
+                if (expected > 0 && count < expected) return false;
             }
+
             return true;
         }
         catch
         {
-            // DB locked / pas accessible → on retourne false, le caller fera fallback.
+            // DB locked / pas accessible → retourne false, caller fera fallback MT5.
             return false;
         }
     }
+
+    private static long CandlesPerTradingDay(string tf) => tf switch
+    {
+        "M1"  => 1440,
+        "M5"  => 288,
+        "M15" => 96,
+        "H1"  => 24,
+        "H4"  => 6,
+        "D"   => 1,
+        _     => 24,
+    };
 
     /// <summary>
     /// Compte de bougies par symbole/TF — utile pour la validation.
@@ -249,6 +281,86 @@ public sealed class DuckDBReader
 
             var candles = ReadCandles(cmd, symbol, tf);
             if (candles.Count > 0) result[tf] = candles;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Charge TOUS les symboles × TOUS les TFs en une seule connexion DuckDB.
+    /// Une requête par TF (6 requêtes total) au lieu de N connexions concurrentes.
+    ///
+    /// Avantage : élimine la contention de lock DuckDB quand 36+ symboles
+    /// tentent d'ouvrir des connexions simultanément (cause du gel 39s).
+    ///
+    /// queries = liste de (timeframe, from, to) — from inclut déjà le warmup.
+    /// progressCallback(tf, count) = appelé après chaque TF chargé (maj overlay).
+    /// </summary>
+    public Dictionary<string, Dictionary<string, List<Candle>>> GetAllCandlesBatch(
+        IEnumerable<string> symbols,
+        IEnumerable<(string Tf, DateTimeOffset From, DateTimeOffset To)> queries,
+        Action<string, int>? progressCallback = null)
+    {
+        var symList = symbols.ToList();
+        var result  = new Dictionary<string, Dictionary<string, List<Candle>>>(StringComparer.OrdinalIgnoreCase);
+        if (symList.Count == 0) return result;
+
+        var symIn = string.Join(",", symList.Select((_, i) => $"$s{i}"));
+
+        using var con = OpenRead();
+
+        foreach (var (tf, from, to) in queries)
+        {
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT symbol, time, open, high, low, close, volume
+                FROM candles
+                WHERE symbol    IN ({symIn})
+                  AND timeframe  = $tf
+                  AND time >= $from
+                  AND time <= $to
+                ORDER BY symbol, time
+                """;
+
+            for (int i = 0; i < symList.Count; i++)
+                cmd.Parameters.Add(new DuckDBParameter($"s{i}", symList[i]));
+            cmd.Parameters.Add(new DuckDBParameter("tf",   tf));
+            cmd.Parameters.Add(new DuckDBParameter("from", from.UtcDateTime));
+            cmd.Parameters.Add(new DuckDBParameter("to",   to.UtcDateTime));
+
+            int rowCount = 0;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var sym  = reader.GetString(0);
+                var utc  = reader.GetDateTime(1);
+                var time = TimeZoneHelper.ToQuebec(utc);
+
+                if (!result.TryGetValue(sym, out var tfMap))
+                {
+                    tfMap = new Dictionary<string, List<Candle>>(StringComparer.OrdinalIgnoreCase);
+                    result[sym] = tfMap;
+                }
+                if (!tfMap.TryGetValue(tf, out var list))
+                {
+                    list = new List<Candle>();
+                    tfMap[tf] = list;
+                }
+                list.Add(new Candle
+                {
+                    Symbol    = sym,
+                    Timeframe = tf,
+                    Time      = time,
+                    Open      = reader.GetDouble(2),
+                    High      = reader.GetDouble(3),
+                    Low       = reader.GetDouble(4),
+                    Close     = reader.GetDouble(5),
+                    Volume    = reader.GetInt64(6),
+                });
+                rowCount++;
+            }
+
+            progressCallback?.Invoke(tf, rowCount);
         }
 
         return result;

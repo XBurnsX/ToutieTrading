@@ -121,14 +121,16 @@ public partial class TradePopupWindow : Window
             var  from  = entry.AddSeconds(-tfSec * 80);
             var  to    = exit .AddSeconds( tfSec * 40);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-            // BuildHistoryJsonUpTo utilise les données déjà calculées pendant le replay
-            // (Ichimoku, cloud, etc.) — rien à recalculer ici.
+            // Tente d'abord les données en mémoire (Replay actif).
+            // Si null (historique live ou replay terminé) → charge depuis DuckDB.
             var historyJson = _replay.BuildHistoryJsonUpTo(
-                _trade.Symbol, _timeframe, from, to, _strategy, cts.Token);
+                                  _trade.Symbol, _timeframe, from, to, _strategy, cts.Token)
+                           ?? _replay.BuildHistoryJsonFromDb(
+                                  _trade.Symbol, _timeframe, from, to, _strategy, cts.Token);
 
-            if (historyJson == null) return;   // replay terminé, données plus en mémoire
+            if (historyJson == null) return;
 
             // 1. Envoyer le historyset (candles + Ichimoku déjà calculé)
             Chart.CoreWebView2.PostWebMessageAsString(historyJson);

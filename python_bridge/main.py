@@ -181,7 +181,7 @@ async def symbol_info(symbol: str):
 # ─── POST /ensure_candles_range ───────────────────────────────────────────────
 
 @app.post("/ensure_candles_range", response_model=EnsureCandlesRangeResponse)
-async def ensure_candles_range(req: EnsureCandlesRangeRequest):
+def ensure_candles_range(req: EnsureCandlesRangeRequest):
     """
     Lazy fetch MT5 → DuckDB.
 
@@ -194,6 +194,9 @@ async def ensure_candles_range(req: EnsureCandlesRangeRequest):
     Premier run d'une date range = lent (fetch MT5). Runs suivants = instant (cache hit).
 
     Timeout C# : 600s (peut être très long la première fois).
+
+    NOTE : endpoint synchrone (def, pas async def) — FastAPI le lance dans un thread pool,
+    ce qui libère l'event loop pour servir /download_progress pendant le téléchargement.
     """
     try:
         return mt5_service.ensure_candles_range(
@@ -205,6 +208,19 @@ async def ensure_candles_range(req: EnsureCandlesRangeRequest):
         return JSONResponse(status_code=503, content={"error": str(e)})
     except ValueError as e:
         return JSONResponse(status_code=422, content={"error": str(e)})
+
+
+# ─── GET /download_progress ───────────────────────────────────────────────────
+
+@app.get("/download_progress")
+async def download_progress():
+    """
+    Retourne l'état courant du téléchargement ensure_candles_range.
+    Réponse : {"current": "EURUSD", "index": 12, "total": 36}
+    Polié toutes les ~1s par le C# pendant ensure_candles_range pour afficher
+    le progrès en temps réel dans la ReplayPage.
+    """
+    return mt5_service.get_download_progress()
 
 
 # ─── POST /ensure_ticks_range ─────────────────────────────────────────────────

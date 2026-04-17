@@ -34,7 +34,16 @@ public sealed class IchimokuAltiTrading : IStrategy
         _                  => "H4",
     };
 
-    public List<string> RequiredTimeframes => new() { Timeframe, ContextTf, TrendTf };
+    public List<string> RequiredTimeframes
+    {
+        get
+        {
+            var tfs = new List<string> { Timeframe, ContextTf, TrendTf, "D" };
+            if (Mode == "ScalpingGourmand")
+                tfs.Add("H1");
+            return tfs.Distinct().ToList();
+        }
+    }
     public List<string> Indicators         => new() { "Ichimoku" };
 
     // ─── Dropdowns ────────────────────────────────────────────────────────────
@@ -44,7 +53,7 @@ public sealed class IchimokuAltiTrading : IStrategy
         ["Mode"]     = new[] { "IntraDay", "Scalping", "ScalpingGourmand" },
         ["ExitType"] = new[] { "PivotKijun", "Pivot", "Kijun" },
         ["TpLevel"]  = new[] { "R1S1", "R2S2" },
-        ["SlType"]   = new[] { "BougieLow", "Swing5" },
+        ["SlType"]   = new[] { "BougieLow", "SwingN", "Swing5" },
     };
 
     // ─── Sections UI ──────────────────────────────────────────────────────────
@@ -57,11 +66,11 @@ public sealed class IchimokuAltiTrading : IStrategy
         },
         ["Risque"] = new[]
         {
-            "MaxDailyDrawdown", "MinRiskReward", "MaxTradesPerSymbolPerDay",
+            "MaxDailyDrawdown", "MinRiskReward", "MaxTradesPerSymbolPerDay", "ReentryCooldownMinutes",
         },
         ["Stop Loss / Take Profit"] = new[]
         {
-            "ExitType", "TpLevel", "SlType", "KijunInverseMinR", "KijunExitMinR",
+            "ExitType", "TpLevel", "SlType", "SwingLookbackBars", "KijunInverseMinR", "KijunExitMinR",
             "SlBuf_Fx",  "SlMin_Fx",
             "SlBuf_Jpy", "SlMin_Jpy",
             "SlBuf_Mid", "SlMin_Mid",
@@ -91,6 +100,7 @@ public sealed class IchimokuAltiTrading : IStrategy
 
     public int     MaxSimultaneousTrades   => 1;
     public int     MaxTradesPerSymbolPerDay => GetInt("MaxTradesPerSymbolPerDay", 2);
+    public int     ReentryCooldownMinutes  => GetInt("ReentryCooldownMinutes", 30);
     public decimal MaxDailyDrawdownPercent => GetDecimal("MaxDailyDrawdown", 3.0m);
 
     // ─── Helpers settings ─────────────────────────────────────────────────────
@@ -103,7 +113,7 @@ public sealed class IchimokuAltiTrading : IStrategy
     // ─── Stop Loss ────────────────────────────────────────────────────────────
     //
     // Logique :
-    //   • Swing5 = BUY: Low5 exact, SELL: High5 exact. Aucun buffer, aucun minimum.
+    //   • SwingN = BUY: Low exact, SELL: High exact sur N bougies. Aucun buffer, aucun minimum.
     //   • Ancrage = bougie signal (BUY: Low, SELL: High) + buffer en unités natives
     //   • Distance minimale imposée (minStopDistance) pour éviter les SL trop serrés
     //     qui font exploser le lot size sur indices / petites bougies.
@@ -129,8 +139,10 @@ public sealed class IchimokuAltiTrading : IStrategy
         {
             var (buffer, minDist) = GetStopProfile(iv.Close);
 
-            if (SlType == "Swing5")
-                return dir == "BUY" ? iv.Low5 : iv.High5;
+            if (SlType == "SwingN" || SlType == "Swing5")
+                return dir == "BUY"
+                    ? LowestRecentLow(iv, GetInt("SwingLookbackBars", 10))
+                    : HighestRecentHigh(iv, GetInt("SwingLookbackBars", 10));
 
             double anchor = dir == "BUY" ? iv.Low - buffer : iv.High + buffer;
 
@@ -166,6 +178,28 @@ public sealed class IchimokuAltiTrading : IStrategy
     }
 
     // ─── Take Profit ──────────────────────────────────────────────────────────
+
+    private static double LowestRecentLow(IndicatorValues iv, int bars)
+    {
+        int count = Math.Max(1, bars);
+        var lows = iv.RecentLows is { Count: > 0 } ? iv.RecentLows : new[] { iv.Low5 };
+        int start = Math.Max(0, lows.Count - count);
+        double low = lows[start];
+        for (int i = start + 1; i < lows.Count; i++)
+            if (lows[i] < low) low = lows[i];
+        return low;
+    }
+
+    private static double HighestRecentHigh(IndicatorValues iv, int bars)
+    {
+        int count = Math.Max(1, bars);
+        var highs = iv.RecentHighs is { Count: > 0 } ? iv.RecentHighs : new[] { iv.High5 };
+        int start = Math.Max(0, highs.Count - count);
+        double high = highs[start];
+        for (int i = start + 1; i < highs.Count; i++)
+            if (highs[i] > high) high = highs[i];
+        return high;
+    }
 
     public TakeProfitRule TakeProfit => new TakeProfitRule
     {
@@ -255,11 +289,13 @@ public sealed class IchimokuAltiTrading : IStrategy
         ["MaxDailyDrawdown"] = 3.0m,
         ["MinRiskReward"]    = 2.0m,
         ["MaxTradesPerSymbolPerDay"] = 2,
+        ["ReentryCooldownMinutes"] = 30,
 
         // Stop Loss / Take Profit
         ["ExitType"]         = "PivotKijun",
         ["TpLevel"]          = "R1S1",
-        ["SlType"]           = "BougieLow",  // BougieLow = Low/High bougie signal | Swing5 = Low/High le plus extrême des 5 dernières bougies
+        ["SlType"]           = "BougieLow",  // BougieLow = Low/High bougie signal | SwingN = Low/High le plus extreme des N dernieres bougies
+        ["SwingLookbackBars"] = 10,
         ["KijunInverseMinR"] = 0.5m,   // multiplicateur × buffer natif (GetStopProfile) que le close doit dépasser la Kijun inverse
         ["KijunExitMinR"]    = 2.0m,   // Kijun reverse ferme seulement si le trade a atteint au moins ce multiple du risque
 

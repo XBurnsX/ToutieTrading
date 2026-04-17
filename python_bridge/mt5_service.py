@@ -5,6 +5,7 @@ Toutes les timestamps retournées sont déjà converties en heure Québec offset
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import math
 import time
 from typing import Optional
 
@@ -28,6 +29,16 @@ _TF_MAP: dict[str, int] = {
 }
 
 BOT_TAG = "ToutieTrader"
+BOT_MAGIC = 20260417
+DEFAULT_DEVIATION = 20
+
+# ─── Download progress (thread-safe via GIL — dict replacement is atomic) ────
+_download_progress: dict = {"current": "", "index": 0, "total": 0}
+
+
+def get_download_progress() -> dict:
+    """Retourne l'état courant du téléchargement ensure_candles_range."""
+    return _download_progress
 
 
 # ─── Init / Shutdown ──────────────────────────────────────────────────────────
@@ -62,7 +73,7 @@ def get_status() -> dict:
 
 def get_account() -> dict:
     """
-    Retourne balance, equity, drawdown_percent, currency.
+    Retourne balance, equity, drawdown_percent, currency et marge.
     Lève RuntimeError si MT5 unavailable.
     """
     if not is_connected():
@@ -81,6 +92,12 @@ def get_account() -> dict:
         "equity":           equity,
         "drawdown_percent": drawdown,
         "currency":         info.currency,
+        "profit":           round(float(getattr(info, "profit", 0.0) or 0.0), 2),
+        "margin":           round(float(getattr(info, "margin", 0.0) or 0.0), 2),
+        "free_margin":      round(float(getattr(info, "margin_free", 0.0) or 0.0), 2),
+        "margin_level":     round(float(getattr(info, "margin_level", 0.0) or 0.0), 2),
+        "login":            int(getattr(info, "login", 0) or 0),
+        "server":           str(getattr(info, "server", "") or ""),
     }
 
 
@@ -104,12 +121,14 @@ def get_candles(
     if tf is None:
         raise ValueError(f"Timeframe invalide : {timeframe}. Valides : {list(_TF_MAP)}")
 
+    mt5_name = _resolve_mt5_symbol(symbol)
+
     if count is not None:
-        rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+        rates = mt5.copy_rates_from_pos(mt5_name, tf, 0, count)
     elif from_iso and to_iso:
         dt_from = iso_to_utc_naive(from_iso)
         dt_to   = iso_to_utc_naive(to_iso)
-        rates   = mt5.copy_rates_range(symbol, tf, dt_from, dt_to)
+        rates   = mt5.copy_rates_range(mt5_name, tf, dt_from, dt_to)
     else:
         raise ValueError("Fournir 'count' ou 'from'+'to'.")
 
@@ -154,21 +173,38 @@ def send_order(
     if not is_connected():
         raise RuntimeError("MT5 unavailable")
 
+    mt5_name = _resolve_mt5_symbol(symbol)
+    info = mt5.symbol_info(mt5_name)
+    if info is None:
+        raise ValueError(f"Symbol not found: {symbol}")
+
+    tick = mt5.symbol_info_tick(mt5_name)
+    if tick is None:
+        raise ValueError(f"No tick available for symbol: {mt5_name}")
+
     order_type = mt5.ORDER_TYPE_BUY if direction == "BUY" else mt5.ORDER_TYPE_SELL
+    price = float(tick.ask) if order_type == mt5.ORDER_TYPE_BUY else float(tick.bid)
+    if price <= 0:
+        raise ValueError(f"No executable price available for symbol: {mt5_name}")
+
+    volume = _normalize_volume(info, lot_size)
+    comment = f"{BOT_TAG}:{correlation_id[:8]}"
 
     request = {
         "action":       mt5.TRADE_ACTION_DEAL,
-        "symbol":       symbol,
-        "volume":       round(lot_size, 2),
+        "symbol":       mt5_name,
+        "volume":       volume,
         "type":         order_type,
-        "sl":           sl,
-        "tp":           tp,
+        "price":        _round_price(price, info),
+        "sl":           _round_price(sl, info),
+        "tp":           _round_price(tp, info),
+        "deviation":    DEFAULT_DEVIATION,
+        "magic":        BOT_MAGIC,
         "type_time":    mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
-        "comment":      f"{BOT_TAG}:{correlation_id[:8]}",
+        "comment":      comment,
     }
 
-    result = mt5.order_send(request)
+    result = _send_order_with_filling(request)
 
     if result is None:
         raise ValueError("Ordre rejeté : aucune réponse MT5")
@@ -181,13 +217,15 @@ def send_order(
 
     fill_time = format_iso(utc_now_quebec())
 
+    ticket = _find_position_ticket(mt5_name, comment, result.order)
+
     response = {
-        "ticket":     result.order,
+        "ticket":     ticket,
         "fill_price": round(result.price, 5),
         "time":       fill_time,
     }
 
-    correlation.save(correlation_id, result.order, round(result.price, 5), fill_time)
+    correlation.save(correlation_id, ticket, round(result.price, 5), fill_time)
     return response
 
 
@@ -207,6 +245,10 @@ def close_order(ticket: int) -> dict:
 
     pos = positions[0]
     close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+    tick = mt5.symbol_info_tick(pos.symbol)
+    close_price = None
+    if tick is not None:
+        close_price = float(tick.bid) if close_type == mt5.ORDER_TYPE_SELL else float(tick.ask)
 
     request = {
         "action":       mt5.TRADE_ACTION_DEAL,
@@ -214,12 +256,15 @@ def close_order(ticket: int) -> dict:
         "symbol":       pos.symbol,
         "volume":       pos.volume,
         "type":         close_type,
+        "deviation":    DEFAULT_DEVIATION,
+        "magic":        BOT_MAGIC,
         "type_time":    mt5.ORDER_TIME_GTC,
-        "type_filling": mt5.ORDER_FILLING_IOC,
         "comment":      f"{BOT_TAG}:close",
     }
+    if close_price and close_price > 0:
+        request["price"] = close_price
 
-    result = mt5.order_send(request)
+    result = _send_order_with_filling(request)
 
     if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
         reason = result.comment if result else "Aucune réponse MT5"
@@ -295,6 +340,106 @@ def _mt5_to_canonical(mt5_name: str) -> str:
     # Strip prefix # ou .
     name = name.lstrip("#.")
     return name
+
+
+def _ensure_symbol_visible(mt5_name: str):
+    info = mt5.symbol_info(mt5_name)
+    if info is None:
+        return None
+    if not info.visible:
+        mt5.symbol_select(mt5_name, True)
+        info = mt5.symbol_info(mt5_name)
+    return info
+
+
+def _resolve_mt5_symbol(symbol: str) -> str:
+    """
+    Accepte un symbole canonique (JP225) ou broker-natif (JP225.cash).
+    Retourne toujours le nom exact que MT5 doit recevoir.
+    """
+    direct = _ensure_symbol_visible(symbol)
+    if direct is not None:
+        return symbol
+
+    requested = symbol.upper()
+    for s in (mt5.symbols_get() or []):
+        if _mt5_to_canonical(s.name).upper() == requested:
+            if _ensure_symbol_visible(s.name) is None:
+                raise ValueError(f"Symbol not selectable: {s.name}")
+            return s.name
+
+    raise ValueError(f"Symbol not found: {symbol}")
+
+
+def _round_price(value: float, info) -> float:
+    digits = int(getattr(info, "digits", 5) or 5)
+    return round(float(value), digits)
+
+
+def _volume_decimals(step: float) -> int:
+    text = f"{step:.8f}".rstrip("0").rstrip(".")
+    if "." not in text:
+        return 0
+    return len(text.split(".", 1)[1])
+
+
+def _normalize_volume(info, lot_size: float) -> float:
+    step = float(getattr(info, "volume_step", 0) or 0)
+    min_vol = float(getattr(info, "volume_min", 0) or 0)
+    max_vol = float(getattr(info, "volume_max", 0) or 0)
+    volume = float(lot_size)
+
+    if step > 0:
+        volume = math.floor((volume / step) + 1e-9) * step
+        volume = round(volume, _volume_decimals(step))
+
+    if min_vol > 0 and volume + 1e-9 < min_vol:
+        raise ValueError(f"Lot size {lot_size} below broker minimum {min_vol}")
+    if max_vol > 0 and volume - 1e-9 > max_vol:
+        raise ValueError(f"Lot size {lot_size} above broker maximum {max_vol}")
+
+    return volume
+
+
+def _send_order_with_filling(request: dict):
+    invalid_fill = getattr(mt5, "TRADE_RETCODE_INVALID_FILL", 10030)
+    attempts = []
+
+    for filling in (
+        mt5.ORDER_FILLING_IOC,
+        mt5.ORDER_FILLING_FOK,
+        mt5.ORDER_FILLING_RETURN,
+    ):
+        current = dict(request)
+        current["type_filling"] = filling
+        result = mt5.order_send(current)
+        if result is None:
+            return None
+        attempts.append(result)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            return result
+        if result.retcode != invalid_fill:
+            return result
+
+    return attempts[-1] if attempts else None
+
+
+def _find_position_ticket(mt5_name: str, comment: str, order_ticket: int) -> int:
+    # Sur certains comptes, result.order n'est pas le ticket de position.
+    # On relit la position par commentaire pour que /close_order vise le bon ticket.
+    time.sleep(0.2)
+    positions = mt5.positions_get(symbol=mt5_name) or []
+
+    for pos in positions:
+        if str(getattr(pos, "comment", "")) == comment:
+            return int(pos.ticket)
+
+    for pos in positions:
+        identifier = int(getattr(pos, "identifier", 0) or 0)
+        if identifier == int(order_ticket):
+            return int(pos.ticket)
+
+    return int(order_ticket)
 
 
 def _tf_seconds(tf_name: str) -> int:
@@ -478,6 +623,7 @@ def ensure_candles_range(
 
     Lève RuntimeError si MT5 unavailable.
     """
+    global _download_progress
     if not is_connected():
         raise RuntimeError("MT5 unavailable")
 
@@ -535,9 +681,11 @@ def ensure_candles_range(
                 return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
             return None
 
-        for s in watchlist:
+        _download_progress = {"current": "", "index": 0, "total": len(watchlist)}
+        for i, s in enumerate(watchlist):
             mt5_sym   = s.name
             canonical = _mt5_to_canonical(mt5_sym)
+            _download_progress = {"current": canonical, "index": i + 1, "total": len(watchlist)}
 
             inserted_by_tf  = {}
             cached_by_tf    = {}

@@ -41,6 +41,9 @@ public interface IStrategy
     /// <summary>Nombre max d'entrees par symbole par journee. -1 = illimite.</summary>
     int MaxTradesPerSymbolPerDay => -1;
 
+    /// <summary>Minutes minimum avant de reprendre le meme symbole dans la meme direction. 0 = desactive.</summary>
+    int ReentryCooldownMinutes => 0;
+
     /// <summary>Le bot stoppe si le drawdown dépasse ce % dans la journée.</summary>
     decimal MaxDailyDrawdownPercent { get; }
 

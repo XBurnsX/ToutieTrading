@@ -256,13 +256,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>Rafraîchit les données de compte. Appelé par AccueilPage.</summary>
     public async Task RefreshAccountAsync()
     {
-        if (!IsMt5Ok) return;
         try
         {
             var info = await _mt5.GetAccountInfoAsync();
             Account = info;
+            ConnectionError = string.Empty;
         }
-        catch { /* Erreur réseau → on garde la dernière valeur */ }
+        catch (Exception ex)
+        {
+            ConnectionError = $"Compte MT5: {ex.Message}";
+        }
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────────

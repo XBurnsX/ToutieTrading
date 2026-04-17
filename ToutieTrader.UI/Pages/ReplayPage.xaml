@@ -8,9 +8,10 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- barre contrôles -->
-            <RowDefinition Height="*"/>     <!-- chart WebView2 -->
-            <RowDefinition Height="220"/>   <!-- panneau résultats -->
+            <RowDefinition Height="Auto"/>  <!-- Row 0: barre contrôles -->
+            <RowDefinition Height="Auto"/>  <!-- Row 1: bande chargement (jamais derrière WebView2) -->
+            <RowDefinition Height="*"/>     <!-- Row 2: chart WebView2 -->
+            <RowDefinition Height="220"/>   <!-- Row 3: panneau résultats -->
         </Grid.RowDefinitions>
 
         <!-- ══ BARRE DE CONTRÔLE ═══════════════════════════════════════════════ -->
@@ -149,44 +150,52 @@
             </Grid>
         </Border>
 
-        <!-- ══ CHART WebView2 ══════════════════════════════════════════════════ -->
-        <wv2:WebView2 x:Name="Chart"
-                      Grid.Row="1"/>
-
-        <!-- ══ Overlay de chargement (MT5 fetch + DuckDB load) ═════════════════ -->
+        <!-- ══ Bande de chargement (Row 1 — au-dessus de WebView2, toujours visible) ══ -->
+        <!-- NOTE: WebView2 utilise HWND et s'affiche toujours AU-DESSUS des éléments WPF
+             du même Grid.Row. Cette bande est dans sa propre Row (Row 1), au-dessus du chart
+             (Row 2), ce qui garantit sa visibilité pendant le fetch MT5 et le load DuckDB. -->
         <Border x:Name="LoadingOverlay"
                 Grid.Row="1"
-                Background="#E6151A21"
-                Visibility="Collapsed"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Stretch">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="⏳"
-                           FontSize="48"
-                           HorizontalAlignment="Center"
-                           Margin="0,0,0,16"/>
-                <TextBlock x:Name="LoadingText"
-                           Text="Chargement…"
-                           FontSize="16"
-                           FontWeight="SemiBold"
-                           Foreground="{StaticResource TextBrush}"
-                           HorizontalAlignment="Center"
-                           TextWrapping="Wrap"
-                           TextAlignment="Center"
-                           MaxWidth="600"/>
-                <TextBlock Text="La première run d'une date range télécharge depuis MT5 — ça peut prendre plusieurs minutes."
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource AccentBrush}"
+                BorderThickness="0,0,0,2"
+                Padding="14,10"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Vertical">
+                    <TextBlock x:Name="LoadingText"
+                               Text="Chargement…"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"
+                               TextWrapping="Wrap"/>
+                    <ProgressBar x:Name="LoadingBar"
+                                 IsIndeterminate="True"
+                                 Height="3"
+                                 Foreground="{StaticResource AccentBrush}"
+                                 Background="{StaticResource BorderBrush}"
+                                 Margin="0,8,0,0"/>
+                </StackPanel>
+                <TextBlock x:Name="LoadingElapsed"
+                           Grid.Column="1"
+                           Text=""
                            FontSize="11"
                            Foreground="{StaticResource MutedBrush}"
-                           HorizontalAlignment="Center"
-                           Margin="0,12,0,0"
-                           MaxWidth="600"
-                           TextWrapping="Wrap"
-                           TextAlignment="Center"/>
-            </StackPanel>
+                           VerticalAlignment="Center"
+                           Margin="20,0,0,0"/>
+            </Grid>
         </Border>
 
+        <!-- ══ CHART WebView2 ══════════════════════════════════════════════════ -->
+        <wv2:WebView2 x:Name="Chart"
+                      Grid.Row="2"/>
+
         <!-- ══ HUD Trends (overlay top-right du chart) ═════════════════════════ -->
-        <Border Grid.Row="1"
+        <Border Grid.Row="2"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Top"
                 Margin="0,12,14,0"
@@ -255,7 +264,7 @@
         </Border>
 
         <!-- ══ PANNEAU RÉSULTATS ═══════════════════════════════════════════════ -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0"

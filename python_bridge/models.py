@@ -21,6 +21,12 @@ class AccountResponse(BaseModel):
     equity: float
     drawdown_percent: float
     currency: str
+    profit: float = 0.0
+    margin: float = 0.0
+    free_margin: float = 0.0
+    margin_level: float = 0.0
+    login: int = 0
+    server: str = ""
 
 
 # ─── /candles ─────────────────────────────────────────────────────────────────

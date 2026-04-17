@@ -10,6 +10,7 @@ public partial class AccueilPage : Page
 {
     private readonly MainViewModel _vm;
     private readonly Action? _toggleLive;
+    private bool _refreshingAccount;
 
     public AccueilPage(MainViewModel vm, Action? toggleLive = null)
     {
@@ -18,6 +19,7 @@ public partial class AccueilPage : Page
         _toggleLive = toggleLive;
 
         vm.PropertyChanged += OnViewModelPropertyChanged;
+        Loaded += async (_, _) => await RefreshAccountUiAsync();
 
         UpdateAll();
     }
@@ -38,7 +40,12 @@ public partial class AccueilPage : Page
             or nameof(MainViewModel.GlobalRiskPercent)
             or nameof(MainViewModel.CommissionPerLotPerSide)
             or nameof(MainViewModel.HasOpenLiveTrade))
+        {
             UpdateLiveConfig();
+
+            if (e.PropertyName == nameof(MainViewModel.IsMt5Ok) && _vm.IsMt5Ok)
+                _ = RefreshAccountUiAsync();
+        }
 
         if (e.PropertyName is nameof(MainViewModel.LiveCapital)
             or nameof(MainViewModel.LiveWins)
@@ -67,14 +74,29 @@ public partial class AccueilPage : Page
             TxtBalance.Text  = "-";
             TxtEquity.Text   = "-";
             TxtDrawdown.Text = "-";
+            TxtFreeMargin.Text = "-";
+            TxtProfit.Text = "P/L flottant -";
+            TxtMarginLevel.Text = "Margin level -";
+            TxtMarginUsed.Text = "Marge utilisee -";
             TxtCurrency.Text = "";
+            TxtAccountLine.Text = "Compte MT5: -";
             return;
         }
 
-        TxtBalance.Text  = $"{a.Balance:N2}";
-        TxtEquity.Text   = $"{a.Equity:N2}";
+        string currency = string.IsNullOrWhiteSpace(a.Currency) ? "" : $" {a.Currency}";
+        TxtBalance.Text  = $"{a.Balance:N2}{currency}";
+        TxtEquity.Text   = $"{a.Equity:N2}{currency}";
         TxtDrawdown.Text = $"{a.DrawdownPercent:F2} %";
-        TxtCurrency.Text = a.Currency;
+        TxtFreeMargin.Text = $"{a.FreeMargin:N2}{currency}";
+        TxtProfit.Text = $"P/L flottant {a.Profit:N2}{currency}";
+        TxtMarginLevel.Text = a.MarginLevel > 0
+            ? $"Margin level {a.MarginLevel:N2} %"
+            : "Margin level -";
+        TxtMarginUsed.Text = $"Marge utilisee {a.Margin:N2}{currency}";
+        TxtCurrency.Text = $"Devise compte: {a.Currency}";
+        TxtAccountLine.Text = a.Login > 0
+            ? $"Compte MT5: {a.Login} / {a.Server}"
+            : "Compte MT5: -";
     }
 
     private void UpdateBotStatus()
@@ -125,9 +147,21 @@ public partial class AccueilPage : Page
         => _toggleLive?.Invoke();
 
     private async void BtnRefresh_Click(object sender, RoutedEventArgs e)
+        => await RefreshAccountUiAsync();
+
+    private async Task RefreshAccountUiAsync()
     {
+        if (_refreshingAccount) return;
+        _refreshingAccount = true;
         BtnRefresh.IsEnabled = false;
-        await _vm.RefreshAccountAsync();
-        BtnRefresh.IsEnabled = true;
+        try
+        {
+            await _vm.RefreshAccountAsync();
+        }
+        finally
+        {
+            BtnRefresh.IsEnabled = true;
+            _refreshingAccount = false;
+        }
     }
 }

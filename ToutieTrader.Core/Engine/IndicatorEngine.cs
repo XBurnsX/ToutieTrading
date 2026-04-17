@@ -258,6 +258,8 @@ public sealed class IndicatorEngine
 
                 Low5  = low5,
                 High5 = high5,
+                RecentLows  = arr.Select(c => c.Low).ToArray(),
+                RecentHighs = arr.Select(c => c.High).ToArray(),
 
                 PivotPP = _pivotPP,
                 PivotR1 = _pivotR1,

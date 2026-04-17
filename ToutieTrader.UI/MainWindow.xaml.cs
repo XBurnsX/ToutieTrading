@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using ToutieTrader.Core.Models;
+using ToutieTrader.Data;
 using ToutieTrader.UI.Pages;
 using ToutieTrader.UI.Services;
 using ToutieTrader.UI.ViewModels;
@@ -20,17 +21,17 @@ public partial class MainWindow : Window
     private readonly StrategyPage   _strategyPage;
     private readonly SettingsPage   _settingsPage;
 
-    private readonly LiveService?              _live;
+    private          LiveService?              _live;
     private          CancellationTokenSource?  _liveCts;
 
-    public MainWindow(MainViewModel vm, ReplayService? replayService = null, LiveService? liveService = null, Services.AppSettings? settings = null)
+    public MainWindow(MainViewModel vm, ReplayService? replayService = null, LiveService? liveService = null, Services.AppSettings? settings = null, TradeRepository? tradeRepo = null)
     {
         InitializeComponent();
         ViewModel = vm;
 
         _live = liveService;
         _accueilPage    = new AccueilPage(vm, ToggleLiveTrading);
-        _historiquePage = new HistoriquePage(vm);
+        _historiquePage = new HistoriquePage(vm, tradeRepo, replayService);
         _replayPage     = new ReplayPage(vm, replayService, settings);
         _strategyPage   = new StrategyPage(vm);
         _settingsPage   = new SettingsPage(vm);
@@ -58,6 +59,29 @@ public partial class MainWindow : Window
         UpdateTradingButton();
         UpdateConnectionDots();
         MainFrame.Navigate(_accueilPage);
+    }
+
+    /// <summary>
+    /// Appelé depuis App.xaml.cs après que Roslyn + DuckDB ont fini de charger
+    /// en arrière-plan. Injecte les services dans les pages déjà créées.
+    /// </summary>
+    public void InitServices(ReplayService? replay, LiveService? live, TradeRepository? tradeRepo)
+    {
+        // Live service
+        _live = live;
+        if (_live != null)
+        {
+            _live.OnStatusUpdate += OnLiveStatusUpdate;
+            _live.OnTradeOpened  += OnLiveTradeOpened;
+            _live.OnTradeClosed  += OnLiveTradeClosed;
+            _live.OnStatsUpdate  += OnLiveStatsUpdate;
+        }
+
+        // Pages
+        _replayPage    .InitServices(replay);
+        _historiquePage.InitServices(tradeRepo, replay);
+
+        UpdateTradingButton();
     }
 
     private void NavAccueil_Checked(object sender, RoutedEventArgs e)

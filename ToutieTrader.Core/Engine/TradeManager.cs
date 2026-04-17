@@ -31,6 +31,8 @@ public sealed class TradeManager
     // Trades ouverts en mémoire : correlationId → (record, strategy)
     private readonly Dictionary<string, (TradeRecord Record, IStrategy Strategy)> _openTrades = new();
     private readonly Dictionary<(string Symbol, DateOnly Day), int> _entriesBySymbolDay = new();
+    private readonly Dictionary<(string Symbol, string Direction), DateTimeOffset> _lastEntryBySymbolDirection = new();
+    private readonly Dictionary<(string Symbol, string Direction), DateTimeOffset> _lastExitBySymbolDirection = new();
     private readonly HashSet<string> _countedEntryIds = new(StringComparer.OrdinalIgnoreCase);
 
     public TradeManager(
@@ -56,13 +58,11 @@ public sealed class TradeManager
     /// <summary>Appelé quand une Strategy émet un signal. Mis en attente jusqu'à la prochaine bougie.</summary>
     public void QueueSignal(TradeSignal signal, IStrategy strategy)
     {
-        // Une position par paire par direction — zéro hedging
-        string key = $"{signal.Symbol}:{signal.Direction}";
-        if (_openTrades.Values.Any(t =>
-                t.Record.Symbol    == signal.Symbol &&
-                t.Record.Direction == signal.Direction))
+        // Une seule position ouverte total, et un seul signal en attente.
+        if (_openTrades.Count > 0 || _pendingSignals.Count > 0)
             return;
 
+        string key = $"{signal.Symbol}:{signal.Direction}";
         _pendingSignals[key] = (signal, strategy);
     }
 
@@ -108,7 +108,10 @@ public sealed class TradeManager
     public void SeedTradeCounts(IEnumerable<TradeRecord> trades)
     {
         foreach (var trade in trades)
+        {
             RegisterEntry(trade);
+            RegisterExit(trade);
+        }
     }
 
     public List<TradeRecord> GetOpenTrades()
@@ -159,6 +162,9 @@ public sealed class TradeManager
                 continue;
 
             if (HasReachedMaxTradesPerSymbolDay(candle.Symbol, candle.Time, strategy))
+                continue;
+
+            if (IsInReentryCooldown(candle.Symbol, signal.Direction, candle.Time, strategy))
                 continue;
 
             var signalWithEntry = signal with { EntryPrice = entryPrice };
@@ -281,6 +287,7 @@ public sealed class TradeManager
         {
             if (!_openTrades.TryGetValue(corrId, out var pair)) continue;
             await _execution.ExecuteExitAsync(pair.Record, candle, reason, ct);
+            RegisterExit(pair.Record);
             _openTrades.Remove(corrId);
         }
     }
@@ -325,6 +332,7 @@ public sealed class TradeManager
             if (!_openTrades.TryGetValue(corrId, out var pair)) continue;
             await _execution.ExecuteExitAsync(pair.Record, candle, reason, ct,
                 explicitClosePrice: price, explicitCloseTime: time);
+            RegisterExit(pair.Record);
             _openTrades.Remove(corrId);
         }
 
@@ -384,6 +392,7 @@ public sealed class TradeManager
         {
             if (!_openTrades.TryGetValue(corrId, out var pair)) continue;
             await _execution.ExecuteExitAsync(pair.Record, candle, reason, ct);
+            RegisterExit(pair.Record);
             _openTrades.Remove(corrId);
         }
     }
@@ -471,10 +480,39 @@ public sealed class TradeManager
         return _entriesBySymbolDay.TryGetValue(key, out int count) && count >= max;
     }
 
+    private bool IsInReentryCooldown(
+        string symbol,
+        string direction,
+        DateTimeOffset candidateEntryTime,
+        IStrategy strategy)
+    {
+        int minutes = strategy.ReentryCooldownMinutes;
+        if (minutes <= 0) return false;
+
+        var key = (symbol, direction);
+        var candidate = TimeZoneHelper.ToQuebec(candidateEntryTime);
+        var cooldown = TimeSpan.FromMinutes(minutes);
+
+        if (_lastEntryBySymbolDirection.TryGetValue(key, out var lastEntry) &&
+            candidate - TimeZoneHelper.ToQuebec(lastEntry) < cooldown)
+            return true;
+
+        if (_lastExitBySymbolDirection.TryGetValue(key, out var lastExit) &&
+            candidate - TimeZoneHelper.ToQuebec(lastExit) < cooldown)
+            return true;
+
+        return false;
+    }
+
     private void RegisterEntry(TradeRecord record)
     {
         if (string.IsNullOrWhiteSpace(record.Symbol) || !record.EntryTime.HasValue)
             return;
+
+        TrackLatest(
+            _lastEntryBySymbolDirection,
+            (record.Symbol, record.Direction),
+            record.EntryTime.Value);
 
         string id = string.IsNullOrWhiteSpace(record.CorrelationId)
             ? $"{record.Symbol}|{record.Direction}|{record.EntryTime.Value:O}|{record.EntryPrice}"
@@ -487,6 +525,27 @@ public sealed class TradeManager
         _entriesBySymbolDay[key] = _entriesBySymbolDay.TryGetValue(key, out int count)
             ? count + 1
             : 1;
+    }
+
+    private void RegisterExit(TradeRecord record)
+    {
+        if (string.IsNullOrWhiteSpace(record.Symbol) || !record.ExitTime.HasValue)
+            return;
+
+        TrackLatest(
+            _lastExitBySymbolDirection,
+            (record.Symbol, record.Direction),
+            record.ExitTime.Value);
+    }
+
+    private static void TrackLatest(
+        Dictionary<(string Symbol, string Direction), DateTimeOffset> map,
+        (string Symbol, string Direction) key,
+        DateTimeOffset time)
+    {
+        var qc = TimeZoneHelper.ToQuebec(time);
+        if (!map.TryGetValue(key, out var existing) || qc > TimeZoneHelper.ToQuebec(existing))
+            map[key] = qc;
     }
 
 }
